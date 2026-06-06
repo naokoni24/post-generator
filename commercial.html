@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Tail Techの特定商取引法に基づく表記です。">
+<title>特定商取引法に基づく表記 | Tail Tech</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://tail-tech.jp/commercial.html">
+<style>
+  :root {
+    --navy: #0A3C8F;
+    --navy-dark: #061B45;
+    --ink: #071936;
+    --muted: #5D6B82;
+    --line: #DCE6F5;
+    --bg: #F7FAFF;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    background: linear-gradient(180deg, #fff 0%, var(--bg) 100%);
+    font-family: Nunito, "Arial Rounded MT Bold", "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+    line-height: 1.9;
+  }
+  a { color: inherit; text-decoration: none; }
+  .container {
+    width: min(960px, calc(100% - 40px));
+    margin: 0 auto;
+  }
+  .header {
+    border-bottom: 1px solid var(--line);
+    background: rgba(255,255,255,.88);
+    backdrop-filter: blur(14px);
+  }
+  .header-inner {
+    height: 90px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .brand-logo-mark {
+    width: 50px;
+    height: 50px;
+    object-fit: contain;
+  }
+  .brand-word-image {
+    width: auto;
+    height: 76px;
+    object-fit: contain;
+  }
+  .back-link {
+    color: var(--navy);
+    font-size: 14px;
+    font-weight: 850;
+  }
+  main {
+    padding: 72px 0 96px;
+  }
+  .card {
+    padding: clamp(28px, 5vw, 56px);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 18px 45px rgba(10, 60, 143, .09);
+  }
+  h1 {
+    margin: 0 0 34px;
+    color: var(--navy-dark);
+    font-size: clamp(28px, 4vw, 40px);
+    line-height: 1.35;
+  }
+  dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    border-top: 1px solid var(--line);
+  }
+  dt, dd {
+    margin: 0;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  dt {
+    color: var(--navy-dark);
+    font-weight: 950;
+  }
+  dd {
+    color: #293B58;
+    font-weight: 650;
+  }
+  .mail {
+    color: var(--navy);
+    font-weight: 900;
+  }
+  .footer {
+    padding: 28px 0;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+  }
+  @media (max-width: 700px) {
+    dl { grid-template-columns: 1fr; }
+    dt {
+      padding-bottom: 4px;
+      border-bottom: 0;
+    }
+    dd { padding-top: 0; }
+  }
+</style>
+</head>
+<body>
+  <header class="header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="Tail Tech トップへ">
+        <img class="brand-word-image" src="images/tail-tech-word-a.png" alt="Tail Tech Technology × AI × DX">
+      </a>
+      <a class="back-link" href="index.html">トップへ戻る</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="container">
+      <article class="card">
+        <h1>特定商取引法に基づく表記</h1>
+        <dl>
+          <dt>販売業者名</dt>
+          <dd>Tail Tech</dd>
+
+          <dt>代表者名</dt>
+          <dd>小西 直樹</dd>
+
+          <dt>所在地</dt>
+          <dd>東京都杉並区南荻窪<br>（番地・建物名は請求があれば遅滞なく開示します）</dd>
+
+          <dt>電話番号</dt>
+          <dd>※請求があれば遅滞なく開示します</dd>
+
+          <dt>メールアドレス</dt>
+          <dd><a class="mail" href="#" data-mail-link="plain">メールアドレスを表示</a></dd>
+
+          <dt>サービス内容</dt>
+          <dd>AIシステム開発・業務効率化支援・DXコンサルティング</dd>
+
+          <dt>料金</dt>
+          <dd>お見積もりによる（個別にご提案）</dd>
+
+          <dt>支払方法</dt>
+          <dd>銀行振込</dd>
+
+          <dt>支払時期</dt>
+          <dd>請求書発行後30日以内</dd>
+
+          <dt>役務提供時期</dt>
+          <dd>契約締結後、別途合意した日程にて提供</dd>
+
+          <dt>キャンセルについて</dt>
+          <dd>契約締結後のキャンセルはお受けできません。<br>詳細は個別契約書に準じます。</dd>
+        </dl>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">© Tail Tech</div>
+  </footer>
+  <script src="js/contact-links.js?v=20260531-3" defer></script>
+</body>
+</html>

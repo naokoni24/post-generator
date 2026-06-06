@@ -1,0 +1,42 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Local deployment/tool folders
+.netlify/
+.vercel/
+site/
+.claude/
+
+# Unrelated local projects and generated work folders
+dog-event-app/
+eikaiwa-kids/
+pawalk/
+pet-feeling-app/
+pic/
+rag-sample/
+line_stamps*/
+
+# Unrelated scratch files
+firebase-debug.log
+it_post_generator_rss.py
+requirements.txt
+otsukaresama_*.png
+images/*_cropped.png
+images/case_ai_search.png
+images/case_line.png
+images/case_system.png
+images/cost-navy-*.png
+!images/cost-navy-final-thick.png
+images/dog-event-generated.jpg
+images/knowledge-ai-*.png
+images/profile-temp-*.png
+!images/profile-temp-selected.png
+images/profile_engineer.png
+images/service_ai_search.png
+images/service_dx.png
+images/service_system_dev.png
+
+# Keep the previous repository metadata backup local only
+.git.post-generator-backup-*/
+.git.tail-tech-heavy-backup-*/

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://tail-tech.jp/sitemap.xml

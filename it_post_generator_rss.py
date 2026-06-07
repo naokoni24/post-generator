@@ -768,31 +768,30 @@ HTML = r"""<!DOCTYPE html>
   <div class="status-bar" id="statusBar"><div class="spinner"></div><span id="statusText"></span></div>
   <div id="loadingSkels" style="display:none"></div>
 
+  <div id="opinionPanel" style="display:none;background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:1rem;margin:0 0 12px">
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="modeX" onclick="setMode('x')">📱 X投稿</button>
+      <button class="mode-tab" id="modeQiita" onclick="setMode('qiita')">📝 Qiita記事</button>
+    </div>
+    <div id="xModePanel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span class="section-label" style="margin:0">感想スタイル</span>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#555;cursor:pointer">
+          <input type="checkbox" id="includeOpinion" checked style="width:14px;height:14px;accent-color:#1a1a1a">
+          <span>感想を含める</span>
+        </label>
+      </div>
+      <div id="opinionStyleRow" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    </div>
+    <div id="qiitaModePanel" style="display:none">
+      <p style="font-size:12px;color:#888;line-height:1.6">記事本文をもとにQiita向けの技術記事（Markdown）を生成します。<br>⚠️ 必ず内容を確認・修正してから投稿してください。</p>
+    </div>
+  </div>
+
   <div id="candidatesSection" style="display:none;margin-bottom:1.25rem">
     <div class="section-label">記事を選んでください</div>
     <div id="candidatesList"></div>
     <button class="more-btn" id="moreBtn">もっと見る</button>
-
-    <div id="opinionPanel" style="display:none;background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:1rem;margin:12px 0">
-      <div class="mode-tabs">
-        <button class="mode-tab active" id="modeX" onclick="setMode('x')">📱 X投稿</button>
-        <button class="mode-tab" id="modeQiita" onclick="setMode('qiita')">📝 Qiita記事</button>
-      </div>
-      <div id="xModePanel">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <span class="section-label" style="margin:0">感想スタイル</span>
-          <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#555;cursor:pointer">
-            <input type="checkbox" id="includeOpinion" checked style="width:14px;height:14px;accent-color:#1a1a1a">
-            <span>感想を含める</span>
-          </label>
-        </div>
-        <div id="opinionStyleRow" style="display:flex;gap:8px;flex-wrap:wrap"></div>
-      </div>
-      <div id="qiitaModePanel" style="display:none">
-        <p style="font-size:12px;color:#888;line-height:1.6">記事本文をもとにQiita向けの技術記事（Markdown）を生成します。<br>⚠️ 必ず内容を確認・修正してから投稿してください。</p>
-      </div>
-    </div>
-
   </div>
 
   <div class="sticky-bar" id="stickyBar">
@@ -980,12 +979,10 @@ function renderCands(){
 function selectCand(i){
   selectedIdx=i;
   el('selectBtn').disabled=false;
-  el('opinionPanel').style.display='block';
   // スティッキーバー更新
   el('stickyBar').style.display='block';
   el('stickyTitle').textContent=candidates[i]?.title||'';
   document.body.classList.add('has-sticky');
-  renderOpinionStyles();
   renderCands();
 }
 
@@ -1020,6 +1017,8 @@ el('generateBtn').onclick=async()=>{
     el('generateBtn').disabled=false;
     el('generateBtn').innerHTML='📡 複数ソースから候補を取得';
     el('candidatesSection').style.display='block';
+    el('opinionPanel').style.display='block';
+    renderOpinionStyles();
     renderCands();
   }catch(e){
     el('loadingSkels').style.display='none';

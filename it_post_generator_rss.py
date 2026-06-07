@@ -1154,8 +1154,9 @@ URL: ${shareUrl}
     updateChar();
     setStatus(false);
     el('selectBtn').disabled=false;
-    el('selectBtn').innerHTML='✏️ この記事で投稿文を生成';
+    el('selectBtn').textContent= activeMode==='qiita' ? '📝 Qiita記事を生成' : '✏️ 投稿文を生成';
     el('candidatesSection').style.display='none';
+    el('opinionPanel').style.display='none';
     el('stickyBar').style.display='none';
     document.body.classList.remove('has-sticky');
     el('resultCard').style.display='block';
@@ -1166,7 +1167,7 @@ URL: ${shareUrl}
   }catch(e){
     setStatus(false);
     el('selectBtn').disabled=false;
-    el('selectBtn').innerHTML='✏️ この記事で投稿文を生成';
+    el('selectBtn').textContent= activeMode==='qiita' ? '📝 Qiita記事を生成' : '✏️ 投稿文を生成';
     showError('生成に失敗: '+e.message);
   }
 };
@@ -1186,6 +1187,7 @@ el('shortenBtn').onclick=async()=>{
 el('backBtn').onclick=()=>{
   el('resultCard').style.display='none';
   el('candidatesSection').style.display='block';
+  el('opinionPanel').style.display='block';
   if(selectedIdx>=0){
     el('stickyBar').style.display='block';
     document.body.classList.add('has-sticky');
@@ -1195,6 +1197,7 @@ el('backBtn').onclick=()=>{
 el('qiitaBackBtn').onclick=()=>{
   el('qiitaCard').style.display='none';
   el('candidatesSection').style.display='block';
+  el('opinionPanel').style.display='block';
   if(selectedIdx>=0){
     el('stickyBar').style.display='block';
     document.body.classList.add('has-sticky');
@@ -1212,7 +1215,7 @@ el('qiitaCopyBtn').onclick=async()=>{
 async function generateQiita(){
   const art=candidates[selectedIdx];
   el('selectBtn').disabled=true;
-  el('selectBtn').innerHTML='<div class="spinner" style="width:14px;height:14px;border:2px solid #555;border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:inline-block"></div>';
+  el('selectBtn').innerHTML='<div class="spinner"></div>';
   setStatus(true,'記事本文を取得中...');
   try{
     let articleBody='';
@@ -1262,6 +1265,7 @@ Markdownのみ回答してください。`}]);
     el('selectBtn').disabled=false;
     el('selectBtn').textContent='📝 Qiita記事を生成';
     el('candidatesSection').style.display='none';
+    el('opinionPanel').style.display='none';
     el('stickyBar').style.display='none';
     document.body.classList.remove('has-sticky');
     el('qiitaCard').style.display='block';

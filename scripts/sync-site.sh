@@ -10,7 +10,7 @@ cp assets/wanko_ai.pdf assets/search_ai.pdf site/assets/
 cp js/contact-links.js site/js/
 
 cp \
-  images/tail-tech-word-a.png \
+  images/tail-tech-word-a-transparent.png \
   images/dog-event-hiyori.jpg \
   images/dog-event-service-generated-thumb.jpg \
   images/service_ai_search_knowledge_thumb.png \

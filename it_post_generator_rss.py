@@ -118,7 +118,7 @@ RSS_FEEDS = {
         # 海外
         {"url": "https://aws.amazon.com/blogs/aws/feed/", "source": "AWS Blog"},
         {"url": "https://cloud.google.com/blog/rss/", "source": "Google Cloud Blog"},
-        {"url": "https://azure.microsoft.com/en-us/blog/feed/", "source": "Azure Blog"},
+        {"url": "https://azurecomcdn.azureedge.net/en-us/updates/feed/", "source": "Azure Updates"},
         {"url": "https://www.zdnet.com/topic/cloud/rss.xml", "source": "ZDNet Cloud"},
         {"url": "https://thenewstack.io/feed/", "source": "The New Stack"},
         {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
@@ -132,7 +132,7 @@ RSS_FEEDS = {
         {"url": "https://feeds.feedburner.com/TheHackersNews", "source": "The Hacker News"},
         {"url": "https://krebsonsecurity.com/feed/", "source": "Krebs on Security"},
         {"url": "https://www.darkreading.com/rss.xml", "source": "Dark Reading"},
-        {"url": "https://www.bleepingcomputer.com/feed/", "source": "BleepingComputer"},
+        {"url": "https://www.zdnet.com/topic/security/rss.xml", "source": "ZDNet Security"},
         {"url": "https://isc.sans.edu/rssfeed_full.xml", "source": "SANS Internet Storm Center"},
         {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
     ],
@@ -160,7 +160,7 @@ RSS_FEEDS = {
         {"url": "https://techcrunch.com/category/startups/feed/", "source": "TechCrunch Startups"},
         {"url": "https://venturebeat.com/feed/", "source": "VentureBeat"},
         {"url": "https://www.theverge.com/rss/index.xml", "source": "The Verge"},
-        {"url": "https://www.businessinsider.com/sai/rss", "source": "Business Insider Tech"},
+        {"url": "https://feeds.businessinsider.com/custom/all", "source": "Business Insider"},
         {"url": "https://techcrunch.com/feed/", "source": "TechCrunch"},
         {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
     ],
@@ -174,7 +174,7 @@ RSS_FEEDS = {
         # 海外
         {"url": "https://www.producthunt.com/feed", "source": "Product Hunt"},
         {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
-        {"url": "https://www.makeuseof.com/feed/", "source": "MakeUseOf"},
+        {"url": "https://www.howtogeek.com/feed/", "source": "How-To Geek"},
         {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
     ],
     "ガジェット・ハードウェア": [
@@ -196,12 +196,12 @@ RSS_FEEDS = {
         {"url": "https://rss.itmedia.co.jp/rss/2.0/business.xml", "source": "ITmedia ビジネス"},
         {"url": "https://rss.itmedia.co.jp/rss/2.0/enterprise.xml", "source": "ITmedia Enterprise"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
-        {"url": "https://japan.zdnet.com/rss/index.rdf", "source": "ZDNet Japan"},
-        {"url": "https://forbesjapan.com/feed", "source": "Forbes Japan"},
+        {"url": "https://xtech.nikkei.com/rss/index.rdf", "source": "日経XTECH"},
+        {"url": "https://www.forbes.com/innovation/feed2", "source": "Forbes Tech"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         # 海外
         {"url": "https://techcrunch.com/category/enterprise/feed/", "source": "TechCrunch Enterprise"},
-        {"url": "https://hbr.org/feed", "source": "Harvard Business Review"},
+        {"url": "https://sloanreview.mit.edu/feed/", "source": "MIT Sloan Review"},
         {"url": "https://feeds.feedburner.com/fastcompany/headlines", "source": "Fast Company"},
         {"url": "https://www.zdnet.com/topic/digital-transformation/rss.xml", "source": "ZDNet DX"},
     ],
@@ -680,30 +680,38 @@ def get_articles(category, lang, limit=20, include_x=False, recent_days=None):
         "docs_update": 3,
         "official_x": 2 if include_x else 0,
         "official_blog": 8,
-        "rss_news": 12,
+        "rss_news": limit,  # per_source制御で多様性を担保するためtype上限は緩める
     }
+    MAX_PER_SOURCE = 2  # 同一ソースの占有を防ぐ（最大2件）
     type_counts = {}
+    source_counts = {}
     articles = []
-    for article in unique:
-        article_type = article.get("type", "rss_news")
-        if type_counts.get(article_type, 0) >= type_caps.get(article_type, limit):
-            continue
-        articles.append(article)
-        type_counts[article_type] = type_counts.get(article_type, 0) + 1
-        if len(articles) >= limit:
-            break
-    if len(articles) < limit:
-        selected_urls = {a["url"] for a in articles}
-        for article in unique:
-            article_type = article.get("type", "rss_news")
-            if article["url"] not in selected_urls:
-                if article_type == "official_x" and type_counts.get(article_type, 0) >= type_caps.get(article_type, limit):
-                    continue
-                articles.append(article)
-                selected_urls.add(article["url"])
-                type_counts[article_type] = type_counts.get(article_type, 0) + 1
+    selected_urls = set()
+
+    def _add(pool, src_cap):
+        """pool から src_cap 以内で記事を追加。limit に達したら終了"""
+        for article in pool:
             if len(articles) >= limit:
                 break
+            url = article.get("url", "")
+            if url in selected_urls:
+                continue
+            article_type = article.get("type", "rss_news")
+            source = article.get("source", "")
+            if type_counts.get(article_type, 0) >= type_caps.get(article_type, limit):
+                continue
+            if source_counts.get(source, 0) >= src_cap:
+                continue
+            articles.append(article)
+            selected_urls.add(url)
+            type_counts[article_type] = type_counts.get(article_type, 0) + 1
+            source_counts[source] = source_counts.get(source, 0) + 1
+
+    _add(unique, MAX_PER_SOURCE)          # 第1パス: ソース上限2件
+    if len(articles) < limit:
+        _add(unique, MAX_PER_SOURCE + 2)  # 第2パス: ソース上限4件に緩和
+    if len(articles) < limit:
+        _add(unique, limit)               # 第3パス: 上限なし（フォールバック）
     articles = translate_titles(articles)
     return articles
 

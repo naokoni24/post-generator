@@ -347,6 +347,16 @@ OFFICIAL_BLOG_SOURCES = {
     "Stripe Blog",
     "Supabase Blog",
     "Y Combinator Blog",
+    # AI企業公式Blog
+    "OpenAI Blog",
+    "OpenAI News / Docs",
+    "Google DeepMind Blog",
+    "Hugging Face Blog",
+    "Google AI Blog",
+    "Google Research Blog",
+    "Meta Engineering Blog",
+    "Microsoft AI Blog",
+    "Azure Blog",
 }
 
 JP_PRIORITY_SOURCES = [
@@ -477,7 +487,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None):
         import urllib.request
         opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
         req = Request(feed_url, headers={"User-Agent": "Mozilla/5.0"})
-        with opener.open(req, timeout=10) as res:
+        with opener.open(req, timeout=6) as res:
             raw = res.read()
         root = ET.fromstring(raw)
         ns = {'atom': 'http://www.w3.org/2005/Atom'}
@@ -509,9 +519,15 @@ def fetch_rss(feed_url, source, limit=5, article_type=None):
         return []
 
 def fetch_feed_group(feeds_by_category, category, article_type, per_feed_limit=3):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    feeds = feeds_by_category.get(category, [])
+    if not feeds:
+        return []
     items = []
-    for feed in feeds_by_category.get(category, []):
-        items += fetch_rss(feed["url"], feed["source"], limit=per_feed_limit, article_type=article_type)
+    with ThreadPoolExecutor(max_workers=min(len(feeds), 6)) as executor:
+        futures = [executor.submit(fetch_rss, f["url"], f["source"], per_feed_limit, article_type) for f in feeds]
+        for future in as_completed(futures):
+            items += future.result()
     return items
 
 def get_official_x_candidates(category, limit=2):
@@ -572,7 +588,7 @@ def translate_titles(articles):
     try:
         body = {
             "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 1200,
+            "max_tokens": 2000,
             "messages": [{"role": "user", "content": prompt}]
         }
         req = Request(
@@ -902,7 +918,7 @@ const OPINION_STYLES=[
 ];
 let activeOpinionStyle='impression';
 let activeCat='AI・機械学習', activeLang='jp';
-let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=5;
+let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=10;
 let activeMode='x'; // 'x' or 'qiita'
 
 function setMode(mode){
@@ -1040,7 +1056,7 @@ function selectCand(i){
 }
 
 el('moreBtn').onclick=()=>{
-  visibleCount=Math.min(visibleCount+5,candidates.length);
+  visibleCount=Math.min(visibleCount+10,candidates.length);
   renderCands();
 };
 
@@ -1049,10 +1065,10 @@ el('generateBtn').onclick=async()=>{
   el('resultCard').style.display='none';
   el('candidatesSection').style.display='none';
   el('loadingSkels').style.display='block';
-  el('loadingSkels').innerHTML=Array.from({length:10}).map(()=>`<div class="skel-card"><div class="skel" style="width:60%"></div><div class="skel" style="width:95%"></div><div class="skel" style="width:80%"></div></div>`).join('');
+  el('loadingSkels').innerHTML=Array.from({length:20}).map(()=>`<div class="skel-card"><div class="skel" style="width:60%"></div><div class="skel" style="width:95%"></div><div class="skel" style="width:80%"></div></div>`).join('');
   el('generateBtn').disabled=true;
   el('generateBtn').innerHTML='<div class="spinner"></div>取得中...';
-  selectedIdx=-1;visibleCount=5;el('selectBtn').disabled=true;
+  selectedIdx=-1;visibleCount=10;el('selectBtn').disabled=true;
   el('opinionPanel').style.display='none';
   el('stickyBar').style.display='none';
   document.body.classList.remove('has-sticky');

@@ -1020,6 +1020,14 @@ el('moreBtn').onclick=()=>{
   renderCands();
 };
 
+function setFetching(on){
+  // カテゴリ・言語ボタンをすべてロック／アンロック
+  el('catGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
+  el('langGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
+  el('includeX').disabled=on;
+  el('recentDays').disabled=on;
+}
+
 el('generateBtn').onclick=async()=>{
   el('errorBox').style.display='none';
   el('resultCard').style.display='none';
@@ -1032,6 +1040,7 @@ el('generateBtn').onclick=async()=>{
   el('opinionPanel').style.display='none';
   el('stickyBar').style.display='none';
   document.body.classList.remove('has-sticky');
+  setFetching(true);
   setStatus(true,'複数ソースから候補を取得中...');
   try{
     const includeX=el('includeX').checked?'1':'0';
@@ -1043,6 +1052,7 @@ el('generateBtn').onclick=async()=>{
     if(!candidates||!candidates.length)throw new Error('記事が見つかりませんでした。時間をおいて再試行してください。');
     el('loadingSkels').style.display='none';
     setStatus(false);
+    setFetching(false);
     el('generateBtn').disabled=false;
     el('generateBtn').innerHTML='📡 複数ソースから候補を取得';
     el('candidatesSection').style.display='block';
@@ -1052,6 +1062,7 @@ el('generateBtn').onclick=async()=>{
   }catch(e){
     el('loadingSkels').style.display='none';
     setStatus(false);
+    setFetching(false);
     el('generateBtn').disabled=false;
     el('generateBtn').innerHTML='📡 複数ソースから候補を取得';
     showError('取得に失敗: '+e.message);

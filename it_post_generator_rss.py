@@ -759,13 +759,6 @@ HTML = r"""<!DOCTYPE html>
   .sticky-gen-btn:hover { opacity: .85; }
   .sticky-gen-btn:disabled { opacity: .4; cursor: not-allowed; }
   body.has-sticky { padding-bottom: 72px; }
-  .mode-tabs { display: flex; gap: 0; margin-bottom: 12px; border: 1px solid #e5e5e5; border-radius: 10px; overflow: hidden; }
-  .mode-tab { flex: 1; padding: 9px; font-size: 13px; font-weight: 500; border: none; background: #fff; color: #888; cursor: pointer; transition: all .15s; }
-  .mode-tab.active { background: #1a1a1a; color: #fff; }
-  .qiita-result { background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 1.25rem; display: none; margin-bottom: 1rem; }
-  .qiita-body { font-size: 14px; line-height: 1.8; white-space: pre-wrap; word-break: break-word; background: #f9f9f9; border-radius: 8px; padding: 1rem; min-height: 200px; outline: none; border: 1px solid transparent; }
-  .qiita-body:focus { border-color: #ddd; }
-  .qiita-warn { font-size: 12px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: .5rem .75rem; margin-bottom: 10px; }
   .more-btn { font-size: 13px; padding: 8px 14px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; width: 100%; margin: 8px 0 10px; display: none; }
   .more-btn:hover { background: #f5f5f5; }
   .select-btn { font-size: 14px; padding: 9px 18px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; transition: all .15s; margin-bottom: 1.25rem; }
@@ -838,23 +831,14 @@ HTML = r"""<!DOCTYPE html>
   <div id="loadingSkels" style="display:none"></div>
 
   <div id="opinionPanel" style="display:none;background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:1rem;margin:0 0 12px">
-    <div class="mode-tabs">
-      <button class="mode-tab active" id="modeX" onclick="setMode('x')">📱 X投稿</button>
-      <button class="mode-tab" id="modeQiita" onclick="setMode('qiita')">📝 Qiita記事</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <span class="section-label" style="margin:0">感想スタイル</span>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#555;cursor:pointer">
+        <input type="checkbox" id="includeOpinion" checked style="width:14px;height:14px;accent-color:#1a1a1a">
+        <span>感想を含める</span>
+      </label>
     </div>
-    <div id="xModePanel">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <span class="section-label" style="margin:0">感想スタイル</span>
-        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#555;cursor:pointer">
-          <input type="checkbox" id="includeOpinion" checked style="width:14px;height:14px;accent-color:#1a1a1a">
-          <span>感想を含める</span>
-        </label>
-      </div>
-      <div id="opinionStyleRow" style="display:flex;gap:8px;flex-wrap:wrap"></div>
-    </div>
-    <div id="qiitaModePanel" style="display:none">
-      <p style="font-size:12px;color:#888;line-height:1.6">記事本文をもとにQiita向けの技術記事（Markdown）を生成します。<br>⚠️ 必ず内容を確認・修正してから投稿してください。</p>
-    </div>
+    <div id="opinionStyleRow" style="display:flex;gap:8px;flex-wrap:wrap"></div>
   </div>
 
   <div id="candidatesSection" style="display:none;margin-bottom:1.25rem">
@@ -866,21 +850,7 @@ HTML = r"""<!DOCTYPE html>
   <div class="sticky-bar" id="stickyBar">
     <div class="sticky-bar-inner">
       <span class="sticky-article-title" id="stickyTitle">記事を選択してください</span>
-      <button class="sticky-gen-btn" id="selectBtn" disabled>✏️ 生成</button>
-    </div>
-  </div>
-
-  <div class="qiita-result" id="qiitaCard">
-    <div id="qiitaHeader"></div>
-    <div class="article-meta" id="qiitaMeta"></div>
-    <div class="article-title" id="qiitaTitle"></div>
-    <div class="qiita-warn">⚠️ AIが生成した下書きです。事実確認・加筆修正のうえ投稿してください。</div>
-    <div class="tweet-label">Markdown（編集可）</div>
-    <div class="qiita-body" id="qiitaBox" contenteditable="true"></div>
-    <div class="action-row" style="margin-top:12px">
-      <button class="action-btn" id="qiitaBackBtn">← 選び直す</button>
-      <button class="action-btn" id="qiitaCopyBtn">📋 Markdownをコピー</button>
-      <a class="action-btn x-btn" href="https://qiita.com/drafts/new" target="_blank" style="text-decoration:none">Qiitaで下書き作成 →</a>
+      <button class="sticky-gen-btn" id="selectBtn" disabled>✏️ 投稿文を生成</button>
     </div>
   </div>
 
@@ -919,16 +889,6 @@ const OPINION_STYLES=[
 let activeOpinionStyle='impression';
 let activeCat='AI・機械学習', activeLang='jp';
 let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=10;
-let activeMode='x'; // 'x' or 'qiita'
-
-function setMode(mode){
-  activeMode=mode;
-  el('modeX').classList.toggle('active', mode==='x');
-  el('modeQiita').classList.toggle('active', mode==='qiita');
-  el('xModePanel').style.display = mode==='x' ? 'block' : 'none';
-  el('qiitaModePanel').style.display = mode==='qiita' ? 'block' : 'none';
-  el('selectBtn').textContent = mode==='qiita' ? '📝 Qiita記事を生成' : '✏️ 投稿文を生成';
-}
 
 function el(id){return document.getElementById(id);}
 function getTags(){return tags.filter(t=>t.on).map(t=>t.t).join(' ');}
@@ -1100,7 +1060,6 @@ el('generateBtn').onclick=async()=>{
 
 el('selectBtn').onclick=async()=>{
   if(selectedIdx<0)return;
-  if(activeMode==='qiita') return generateQiita();
   const art=candidates[selectedIdx];
   const shareUrl=shareArticleUrl(art);
   el('selectBtn').disabled=true;
@@ -1223,7 +1182,7 @@ URL: ${shareUrl}
     updateChar();
     setStatus(false);
     el('selectBtn').disabled=false;
-    el('selectBtn').textContent= activeMode==='qiita' ? '📝 Qiita記事を生成' : '✏️ 投稿文を生成';
+    el('selectBtn').textContent='✏️ 投稿文を生成';
     el('candidatesSection').style.display='none';
     el('opinionPanel').style.display='none';
     el('stickyBar').style.display='none';
@@ -1236,7 +1195,7 @@ URL: ${shareUrl}
   }catch(e){
     setStatus(false);
     el('selectBtn').disabled=false;
-    el('selectBtn').textContent= activeMode==='qiita' ? '📝 Qiita記事を生成' : '✏️ 投稿文を生成';
+    el('selectBtn').textContent='✏️ 投稿文を生成';
     showError('生成に失敗: '+e.message);
   }
 };
@@ -1263,89 +1222,6 @@ el('backBtn').onclick=()=>{
   }
 };
 
-el('qiitaBackBtn').onclick=()=>{
-  el('qiitaCard').style.display='none';
-  el('candidatesSection').style.display='block';
-  el('opinionPanel').style.display='block';
-  if(selectedIdx>=0){
-    el('stickyBar').style.display='block';
-    document.body.classList.add('has-sticky');
-  }
-};
-
-el('qiitaCopyBtn').onclick=async()=>{
-  try{
-    await navigator.clipboard.writeText(el('qiitaBox').innerText);
-    el('qiitaCopyBtn').textContent='✓ コピー済';
-    setTimeout(()=>el('qiitaCopyBtn').textContent='📋 Markdownをコピー',1500);
-  }catch{showError('コピーに失敗');}
-};
-
-async function generateQiita(){
-  const art=candidates[selectedIdx];
-  el('selectBtn').disabled=true;
-  el('selectBtn').innerHTML='<div class="spinner"></div>';
-  setStatus(true,'記事本文を取得中...');
-  try{
-    let articleBody='';
-    if(art.url && art.type!=='official_x'){
-      try{
-        const br=await fetch(`/api/fetch_article?url=${encodeURIComponent(art.url)}`);
-        const bd=await br.json();
-        if(bd.body && bd.body.length>100) articleBody=bd.body;
-      }catch(e){ console.warn('記事取得失敗',e); }
-    }
-    const sourceText = articleBody
-      ? `【記事本文（抜粋）】\n${articleBody}`
-      : `【RSS概要】\n${art.summary||'概要なし'}`;
-
-    setStatus(true,'Qiita記事を生成中...');
-    const data=await callProxy([{role:'user',content:`以下の記事をもとに、Qiita向けの技術解説記事をMarkdown形式で書いてください。
-
-【記事情報】
-タイトル: ${art.title}
-ソース: ${art.source}
-URL: ${art.url}
-${sourceText}
-
-【厳守ルール（ハルシネーション防止）】
-- 上記の記事情報・本文に書かれていない事実・数値・機能は絶対に追加しない
-- 不確かな情報は「詳細は元記事を参照してください」と書く
-- コード例は元記事に記載がある場合のみ含める（ない場合は省略）
-- 推測・憶測は「〜と考えられます」など断定しない表現にする
-
-【構成（この順番で書く）】
-1. タイトル（# で始める）
-2. はじめに（この記事で何がわかるか・なぜ重要か）
-3. 内容の解説（元記事の情報のみ使う）
-4. まとめ（箇条書き3〜5点）
-5. 参考リンク（元記事のURLを記載）
-
-【文字数】800〜1500文字程度
-【言語】日本語（技術用語は英語OK）
-Markdownのみ回答してください。`}]);
-
-    const markdown=data.text.trim();
-    el('qiitaHeader').innerHTML=`<span class="badge lang">${activeLang==='en'?'🌐 海外優先':'🇯🇵 国内優先'}</span>`;
-    el('qiitaMeta').textContent=`${art.source}　${art.published}　${art.typeLabel||'RSSニュース'}`;
-    el('qiitaTitle').innerHTML=art.url?`<a href="${escapeHtml(art.url)}" target="_blank">${escapeHtml(art.title)}</a>`:escapeHtml(art.title);
-    el('qiitaBox').innerText=markdown;
-    setStatus(false);
-    el('selectBtn').disabled=false;
-    el('selectBtn').textContent='📝 Qiita記事を生成';
-    el('candidatesSection').style.display='none';
-    el('opinionPanel').style.display='none';
-    el('stickyBar').style.display='none';
-    document.body.classList.remove('has-sticky');
-    el('qiitaCard').style.display='block';
-    el('qiitaCard').scrollIntoView({behavior:'smooth'});
-  }catch(e){
-    setStatus(false);
-    el('selectBtn').disabled=false;
-    el('selectBtn').textContent='📝 Qiita記事を生成';
-    showError('生成に失敗: '+e.message);
-  }
-}
 el('copyBtn').onclick=async()=>{
   try{
     await navigator.clipboard.writeText(el('tweetBox').innerText);

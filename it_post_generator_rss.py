@@ -91,13 +91,11 @@ RSS_FEEDS = {
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         # AI企業公式Blog
         {"url": "https://openai.com/blog/rss.xml", "source": "OpenAI Blog"},
-        {"url": "https://www.anthropic.com/rss.xml", "source": "Anthropic Blog"},
         {"url": "https://deepmind.google/blog/rss.xml", "source": "Google DeepMind Blog"},
-        {"url": "https://blogs.microsoft.com/ai/feed/", "source": "Microsoft AI Blog"},
-        {"url": "https://ai.meta.com/blog/rss/", "source": "Meta AI Blog"},
         {"url": "https://huggingface.co/blog/feed.xml", "source": "Hugging Face Blog"},
         {"url": "https://blog.google/technology/ai/rss/", "source": "Google AI Blog"},
-        {"url": "https://mistral.ai/feed.xml", "source": "Mistral AI Blog"},
+        {"url": "https://engineering.fb.com/feed/", "source": "Meta Engineering Blog"},
+        {"url": "https://research.google/blog/rss/", "source": "Google Research Blog"},
         # 海外メディア
         {"url": "https://techcrunch.com/category/artificial-intelligence/feed/", "source": "TechCrunch AI"},
         {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
@@ -610,6 +608,7 @@ def translate_titles(articles):
     return articles
 
 def get_articles(category, lang, limit=20, include_x=False, recent_days=None):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     feeds = RSS_FEEDS.get(category, RSS_FEEDS["AI・機械学習"])
     all_items = []
     all_items += fetch_feed_group(GITHUB_RELEASE_FEEDS, category, "github_release", per_feed_limit=3)
@@ -617,13 +616,25 @@ def get_articles(category, lang, limit=20, include_x=False, recent_days=None):
     if include_x:
         all_items += get_official_x_candidates(category, limit=2)
 
-    for feed in feeds:
-        if lang == "jp" and any(jp in feed["source"] for jp in JP_PRIORITY_SOURCES):
-            items = fetch_rss(feed["url"], feed["source"], limit=10)
-            all_items = items + all_items
-        else:
-            items = fetch_rss(feed["url"], feed["source"], limit=10)
-            all_items += items
+    # 並列フェッチ（最大10スレッド）
+    jp_sources = set(JP_PRIORITY_SOURCES)
+    jp_items = []
+    other_items = []
+
+    def _fetch(feed):
+        return feed, fetch_rss(feed["url"], feed["source"], limit=5)
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_fetch, feed): feed for feed in feeds}
+        for future in as_completed(futures):
+            feed, items = future.result()
+            is_jp = lang == "jp" and any(jp in feed["source"] for jp in jp_sources)
+            if is_jp:
+                jp_items += items
+            else:
+                other_items += items
+
+    all_items = jp_items + all_items + other_items
     seen = set()
     unique = []
     for a in all_items:

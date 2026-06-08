@@ -609,7 +609,7 @@ def translate_titles(articles):
         print(f"[翻訳] 失敗: {e}", flush=True)
     return articles
 
-def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
+def get_articles(category, lang, limit=20, include_x=False, recent_days=None):
     feeds = RSS_FEEDS.get(category, RSS_FEEDS["AI・機械学習"])
     all_items = []
     all_items += fetch_feed_group(GITHUB_RELEASE_FEEDS, category, "github_release", per_feed_limit=3)
@@ -644,11 +644,11 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
         )
     )
     type_caps = {
-        "github_release": 3,
-        "docs_update": 3,
-        "official_x": 1 if include_x else 0,
-        "official_blog": 2,
-        "rss_news": 6,
+        "github_release": 5,
+        "docs_update": 5,
+        "official_x": 2 if include_x else 0,
+        "official_blog": 5,
+        "rss_news": 15,
     }
     type_counts = {}
     articles = []
@@ -1439,7 +1439,7 @@ class Handler(BaseHTTPRequestHandler):
             include_x = params.get("include_x", ["0"])[0] == "1"
             days = int(params.get("days", [str(RECENT_DAYS)])[0])
             print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
-            articles = get_articles(category, lang, limit=10, include_x=include_x, recent_days=days)
+            articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
             print(f"[候補取得] 取得件数={len(articles)}", flush=True)
             self.send_json(200, {"articles": articles})
         else:

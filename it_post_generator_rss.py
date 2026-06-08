@@ -89,7 +89,16 @@ RSS_FEEDS = {
         {"url": "https://japan.cnet.com/rss/index.rdf", "source": "CNET Japan"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
-        # 海外
+        # AI企業公式Blog
+        {"url": "https://openai.com/blog/rss.xml", "source": "OpenAI Blog"},
+        {"url": "https://www.anthropic.com/rss.xml", "source": "Anthropic Blog"},
+        {"url": "https://deepmind.google/blog/rss.xml", "source": "Google DeepMind Blog"},
+        {"url": "https://blogs.microsoft.com/ai/feed/", "source": "Microsoft AI Blog"},
+        {"url": "https://ai.meta.com/blog/rss/", "source": "Meta AI Blog"},
+        {"url": "https://huggingface.co/blog/feed.xml", "source": "Hugging Face Blog"},
+        {"url": "https://blog.google/technology/ai/rss/", "source": "Google AI Blog"},
+        {"url": "https://mistral.ai/feed.xml", "source": "Mistral AI Blog"},
+        # 海外メディア
         {"url": "https://techcrunch.com/category/artificial-intelligence/feed/", "source": "TechCrunch AI"},
         {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
         {"url": "https://venturebeat.com/category/ai/feed/", "source": "VentureBeat AI"},

@@ -84,83 +84,116 @@ LOGIN_HTML = """<!DOCTYPE html>
 
 RSS_FEEDS = {
     "AI・機械学習": [
+        # 国内
         {"url": "https://rss.itmedia.co.jp/rss/2.0/aiplus.xml", "source": "ITmedia AI"},
         {"url": "https://japan.cnet.com/rss/index.rdf", "source": "CNET Japan"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
+        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        # 海外
         {"url": "https://techcrunch.com/category/artificial-intelligence/feed/", "source": "TechCrunch AI"},
         {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
-        {"url": "https://venturebeat.com/feed/", "source": "VentureBeat"},
+        {"url": "https://venturebeat.com/category/ai/feed/", "source": "VentureBeat AI"},
+        {"url": "https://www.wired.com/feed/tag/ai/latest/rss", "source": "WIRED AI"},
+        {"url": "https://www.technologyreview.com/feed/", "source": "MIT Technology Review"},
         {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
-        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         {"url": "https://rss.arxiv.org/rss/cs.AI", "source": "arxiv AI"},
         {"url": "https://rss.arxiv.org/rss/cs.LG", "source": "arxiv ML"},
     ],
     "クラウド・AWS": [
-        {"url": "https://aws.amazon.com/blogs/aws/feed/", "source": "AWS Blog"},
+        # 国内
         {"url": "https://rss.itmedia.co.jp/rss/2.0/enterprise.xml", "source": "ITmedia Enterprise"},
         {"url": "https://cloud.watch.impress.co.jp/data/rss/1.0/clw/feed.rdf", "source": "クラウド Watch"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
-        {"url": "https://www.zdnet.com/topic/cloud/rss.xml", "source": "ZDNet Cloud"},
-        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        # 海外
+        {"url": "https://aws.amazon.com/blogs/aws/feed/", "source": "AWS Blog"},
+        {"url": "https://cloud.google.com/blog/rss/", "source": "Google Cloud Blog"},
+        {"url": "https://azure.microsoft.com/en-us/blog/feed/", "source": "Azure Blog"},
+        {"url": "https://www.zdnet.com/topic/cloud/rss.xml", "source": "ZDNet Cloud"},
+        {"url": "https://thenewstack.io/feed/", "source": "The New Stack"},
+        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
     ],
     "セキュリティ": [
+        # 国内
         {"url": "https://rss.itmedia.co.jp/rss/2.0/news_security.xml", "source": "ITmedia セキュリティ"},
         {"url": "https://internet.watch.impress.co.jp/data/rss/1.0/iw/feed.rdf", "source": "INTERNET Watch"},
+        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        # 海外
         {"url": "https://feeds.feedburner.com/TheHackersNews", "source": "The Hacker News"},
         {"url": "https://krebsonsecurity.com/feed/", "source": "Krebs on Security"},
+        {"url": "https://www.darkreading.com/rss.xml", "source": "Dark Reading"},
+        {"url": "https://www.bleepingcomputer.com/feed/", "source": "BleepingComputer"},
+        {"url": "https://isc.sans.edu/rssfeed_full.xml", "source": "SANS Internet Storm Center"},
         {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
-        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
     ],
     "開発": [
-        {"url": "https://github.blog/feed/", "source": "GitHub Blog"},
+        # 国内
         {"url": "https://codezine.jp/rss/new/20/index.xml", "source": "CodeZine"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
         {"url": "https://zenn.dev/feed", "source": "Zenn"},
         {"url": "https://qiita.com/popular-items/feed.atom", "source": "Qiita 人気記事"},
-        {"url": "https://rss.itmedia.co.jp/rss/2.0/enterprise.xml", "source": "ITmedia Enterprise"},
-        {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
-        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        # 海外
+        {"url": "https://github.blog/feed/", "source": "GitHub Blog"},
+        {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
+        {"url": "https://stackoverflow.blog/feed/", "source": "Stack Overflow Blog"},
+        {"url": "https://www.smashingmagazine.com/feed/", "source": "Smashing Magazine"},
+        {"url": "https://css-tricks.com/feed/", "source": "CSS-Tricks"},
+        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
     ],
     "スタートアップ": [
+        # 国内
         {"url": "https://thebridge.jp/feed", "source": "BRIDGE"},
+        {"url": "https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml", "source": "ITmedia NEWS"},
+        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        # 海外
         {"url": "https://techcrunch.com/category/startups/feed/", "source": "TechCrunch Startups"},
         {"url": "https://venturebeat.com/feed/", "source": "VentureBeat"},
         {"url": "https://www.theverge.com/rss/index.xml", "source": "The Verge"},
-        {"url": "https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml", "source": "ITmedia NEWS"},
+        {"url": "https://www.businessinsider.com/sai/rss", "source": "Business Insider Tech"},
+        {"url": "https://techcrunch.com/feed/", "source": "TechCrunch"},
         {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
-        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
     ],
     "便利ツール・Tips": [
+        # 国内
         {"url": "https://pc.watch.impress.co.jp/data/rss/1.0/pcw/feed.rdf", "source": "PC Watch"},
         {"url": "https://internet.watch.impress.co.jp/data/rss/1.0/iw/feed.rdf", "source": "INTERNET Watch"},
-        {"url": "https://k-tai.watch.impress.co.jp/data/rss/1.0/ktw/feed.rdf", "source": "ケータイ Watch"},
-        {"url": "https://www.producthunt.com/feed", "source": "Product Hunt"},
-        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
         {"url": "https://www.lifehacker.jp/feed/index.xml", "source": "Lifehacker Japan"},
-        {"url": "https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml", "source": "ITmedia NEWS"},
         {"url": "https://zenn.dev/feed", "source": "Zenn"},
-        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        # 海外
+        {"url": "https://www.producthunt.com/feed", "source": "Product Hunt"},
+        {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
+        {"url": "https://www.makeuseof.com/feed/", "source": "MakeUseOf"},
+        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
     ],
     "ガジェット・ハードウェア": [
+        # 国内
         {"url": "https://pc.watch.impress.co.jp/data/rss/1.0/pcw/feed.rdf", "source": "PC Watch"},
         {"url": "https://k-tai.watch.impress.co.jp/data/rss/1.0/ktw/feed.rdf", "source": "ケータイ Watch"},
+        {"url": "https://www.gizmodo.jp/index.xml", "source": "Gizmodo Japan"},
+        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        # 海外
         {"url": "https://www.engadget.com/rss.xml", "source": "Engadget"},
         {"url": "https://www.theverge.com/rss/index.xml", "source": "The Verge"},
         {"url": "https://feeds.arstechnica.com/arstechnica/gadgets", "source": "Ars Technica Gadgets"},
-        {"url": "https://www.gizmodo.jp/index.xml", "source": "Gizmodo Japan"},
-        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        {"url": "https://gizmodo.com/rss", "source": "Gizmodo"},
+        {"url": "https://www.tomshardware.com/feeds/all", "source": "Tom's Hardware"},
+        {"url": "https://www.anandtech.com/rss/", "source": "AnandTech"},
     ],
     "ビジネス・DX": [
+        # 国内
         {"url": "https://rss.itmedia.co.jp/rss/2.0/business.xml", "source": "ITmedia ビジネス"},
         {"url": "https://rss.itmedia.co.jp/rss/2.0/enterprise.xml", "source": "ITmedia Enterprise"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
         {"url": "https://japan.zdnet.com/rss/index.rdf", "source": "ZDNet Japan"},
         {"url": "https://forbesjapan.com/feed", "source": "Forbes Japan"},
-        {"url": "https://techcrunch.com/category/enterprise/feed/", "source": "TechCrunch Enterprise"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        # 海外
+        {"url": "https://techcrunch.com/category/enterprise/feed/", "source": "TechCrunch Enterprise"},
+        {"url": "https://hbr.org/feed", "source": "Harvard Business Review"},
+        {"url": "https://feeds.feedburner.com/fastcompany/headlines", "source": "Fast Company"},
+        {"url": "https://www.zdnet.com/topic/digital-transformation/rss.xml", "source": "ZDNet DX"},
     ],
 }
 

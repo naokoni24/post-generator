@@ -89,6 +89,7 @@ RSS_FEEDS = {
         {"url": "https://japan.cnet.com/rss/index.rdf", "source": "CNET Japan"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        {"url": "https://ainow.ai/feed/", "source": "AINOW"},
         # AI企業公式Blog
         {"url": "https://openai.com/blog/rss.xml", "source": "OpenAI Blog"},
         {"url": "https://deepmind.google/blog/rss.xml", "source": "Google DeepMind Blog"},
@@ -96,13 +97,15 @@ RSS_FEEDS = {
         {"url": "https://blog.google/technology/ai/rss/", "source": "Google AI Blog"},
         {"url": "https://engineering.fb.com/feed/", "source": "Meta Engineering Blog"},
         {"url": "https://research.google/blog/rss/", "source": "Google Research Blog"},
-        # 海外メディア
+        # 海外メディア（AI特化）
         {"url": "https://techcrunch.com/category/artificial-intelligence/feed/", "source": "TechCrunch AI"},
-        {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
         {"url": "https://venturebeat.com/category/ai/feed/", "source": "VentureBeat AI"},
         {"url": "https://www.wired.com/feed/tag/ai/latest/rss", "source": "WIRED AI"},
         {"url": "https://www.technologyreview.com/feed/", "source": "MIT Technology Review"},
-        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
+        {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
+        # HN（AI関連キーワード絞り込み）
+        {"url": "https://hnrss.org/newest?q=AI+OR+LLM+OR+GPT+OR+Claude+OR+Gemini&points=10", "source": "Hacker News AI"},
+        # arxiv（各2件に絞る → per_feed_limitで制御）
         {"url": "https://rss.arxiv.org/rss/cs.AI", "source": "arxiv AI"},
         {"url": "https://rss.arxiv.org/rss/cs.LG", "source": "arxiv ML"},
     ],
@@ -638,7 +641,9 @@ def get_articles(category, lang, limit=20, include_x=False, recent_days=None):
     other_items = []
 
     def _fetch(feed):
-        return feed, fetch_rss(feed["url"], feed["source"], limit=5)
+        # arxiv は大量に流れるので2件に絞る
+        lim = 2 if feed["source"].startswith("arxiv") else 5
+        return feed, fetch_rss(feed["url"], feed["source"], limit=lim)
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(_fetch, feed): feed for feed in feeds}
@@ -671,11 +676,11 @@ def get_articles(category, lang, limit=20, include_x=False, recent_days=None):
         )
     )
     type_caps = {
-        "github_release": 5,
-        "docs_update": 5,
+        "github_release": 3,
+        "docs_update": 3,
         "official_x": 2 if include_x else 0,
-        "official_blog": 5,
-        "rss_news": 15,
+        "official_blog": 8,
+        "rss_news": 12,
     }
     type_counts = {}
     articles = []

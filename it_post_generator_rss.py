@@ -490,7 +490,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None):
         import urllib.request
         opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
         req = Request(feed_url, headers={"User-Agent": "Mozilla/5.0"})
-        with opener.open(req, timeout=6) as res:
+        with opener.open(req, timeout=4) as res:
             raw = res.read()
         root = ET.fromstring(raw)
         ns = {'atom': 'http://www.w3.org/2005/Atom'}
@@ -603,11 +603,13 @@ def translate_titles(articles):
     if not targets:
         return articles
 
-    # 10件ずつバッチ分割して翻訳（token超過・タイムアウト防止）
+    # 10件ずつバッチ分割して並列翻訳（token超過・タイムアウト防止）
+    from concurrent.futures import ThreadPoolExecutor as _TPE
     BATCH_SIZE = 10
-    translated_all = []
-    for batch_start in range(0, len(targets), BATCH_SIZE):
-        batch = targets[batch_start:batch_start + BATCH_SIZE]
+    batches = [targets[i:i+BATCH_SIZE] for i in range(0, len(targets), BATCH_SIZE)]
+
+    def _do_batch(batch_idx_items):
+        batch_no, batch = batch_idx_items
         items_in = [
             {
                 "index": idx,
@@ -619,11 +621,17 @@ def translate_titles(articles):
             for idx, article in batch
         ]
         try:
-            translated_all += _translate_batch(items_in)
-            print(f"[翻訳] バッチ {batch_start//BATCH_SIZE+1}: {len(batch)}件完了", flush=True)
+            result = _translate_batch(items_in)
+            print(f"[翻訳] バッチ {batch_no+1}: {len(batch)}件完了", flush=True)
+            return result
         except Exception as e:
-            print(f"[翻訳] バッチ {batch_start//BATCH_SIZE+1} 失敗: {e}", flush=True)
-            # 失敗したバッチはスキップ（翻訳なしで表示）
+            print(f"[翻訳] バッチ {batch_no+1} 失敗: {e}", flush=True)
+            return []
+
+    translated_all = []
+    with _TPE(max_workers=len(batches)) as ex:
+        for result in ex.map(_do_batch, enumerate(batches)):
+            translated_all += result
 
     for item in translated_all:
         orig_idx = item.get("index")
@@ -643,34 +651,48 @@ def translate_titles(articles):
 
 def get_articles(category, lang, limit=20, include_x=False, recent_days=None):
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
     feeds = RSS_FEEDS.get(category, RSS_FEEDS["AI・機械学習"])
-    all_items = []
-    all_items += fetch_feed_group(GITHUB_RELEASE_FEEDS, category, "github_release", per_feed_limit=3)
-    all_items += fetch_feed_group(DOCS_UPDATE_FEEDS, category, "docs_update", per_feed_limit=3)
-    if include_x:
-        all_items += get_official_x_candidates(category, limit=2)
-
-    # 並列フェッチ（最大10スレッド）
     jp_sources = set(JP_PRIORITY_SOURCES)
-    jp_items = []
-    other_items = []
 
-    def _fetch(feed):
-        # arxiv は大量に流れるので2件に絞る
+    # RSS / GitHub Releases / Docs更新 をすべて同時並列フェッチ
+    def _fetch_rss(feed, article_type=None):
         lim = 2 if feed["source"].startswith("arxiv") else 5
-        return feed, fetch_rss(feed["url"], feed["source"], limit=lim)
+        items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type)
+        return "jp" if (lang == "jp" and any(jp in feed["source"] for jp in jp_sources)) else "other", items
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_fetch, feed): feed for feed in feeds}
+    def _fetch_group(feed, article_type, per_limit):
+        items = fetch_rss(feed["url"], feed["source"], limit=per_limit, article_type=article_type)
+        return "special", items
+
+    all_tasks = (
+        [(feed, None) for feed in feeds]
+        + [(feed, "github_release") for feed in GITHUB_RELEASE_FEEDS.get(category, [])]
+        + [(feed, "docs_update")   for feed in DOCS_UPDATE_FEEDS.get(category, [])]
+    )
+
+    jp_items, other_items, special_items = [], [], []
+
+    with ThreadPoolExecutor(max_workers=30) as executor:
+        futures = {}
+        for feed, atype in all_tasks:
+            if atype in ("github_release", "docs_update"):
+                futures[executor.submit(_fetch_group, feed, atype, 3)] = atype
+            else:
+                futures[executor.submit(_fetch_rss, feed)] = "rss"
         for future in as_completed(futures):
-            feed, items = future.result()
-            is_jp = lang == "jp" and any(jp in feed["source"] for jp in jp_sources)
-            if is_jp:
+            tag, items = future.result()
+            if tag == "jp":
                 jp_items += items
+            elif tag == "special":
+                special_items += items
             else:
                 other_items += items
 
-    all_items = jp_items + all_items + other_items
+    if include_x:
+        special_items += get_official_x_candidates(category, limit=2)
+
+    all_items = jp_items + special_items + other_items
     seen = set()
     unique = []
     for a in all_items:

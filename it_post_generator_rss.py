@@ -33,7 +33,8 @@ except ImportError:
 API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 PORT       = int(os.environ.get("PORT", 8765))
 RECENT_DAYS = 0
-RSS_FETCH_TIMEOUT = 1.2
+RSS_FETCH_TIMEOUT = 1.0
+RSS_FETCH_BUDGET = 1.2
 
 # Cookie認証（環境変数で設定。未設定なら認証なし）
 BASIC_USER = os.environ.get("BASIC_USER", "")
@@ -117,8 +118,6 @@ RSS_FEEDS = {
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         # 海外
         {"url": "https://aws.amazon.com/blogs/aws/feed/", "source": "AWS Blog"},
-        {"url": "https://cloud.google.com/blog/rss/", "source": "Google Cloud Blog"},
-        {"url": "https://azurecomcdn.azureedge.net/en-us/updates/feed/", "source": "Azure Updates"},
         {"url": "https://www.zdnet.com/topic/cloud/rss.xml", "source": "ZDNet Cloud"},
         {"url": "https://thenewstack.io/feed/", "source": "The New Stack"},
         {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
@@ -693,7 +692,7 @@ def translate_titles(articles):
     return articles
 
 def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 
     feeds = RSS_FEEDS.get(category, RSS_FEEDS["AI・機械学習"])
     jp_sources = set(JP_PRIORITY_SOURCES)
@@ -716,15 +715,46 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
 
     jp_items, other_items, special_items = [], [], []
 
-    with ThreadPoolExecutor(max_workers=12) as executor:
-        futures = {}
+    executor = ThreadPoolExecutor(max_workers=12)
+    futures = {}
+    processed = set()
+    try:
         for feed, atype in all_tasks:
             if atype in ("github_release", "docs_update"):
                 futures[executor.submit(_fetch_group, feed, atype, 3)] = atype
             else:
                 futures[executor.submit(_fetch_rss, feed)] = "rss"
-        for future in as_completed(futures):
-            tag, items = future.result()
+        try:
+            completed_iter = as_completed(futures, timeout=RSS_FETCH_BUDGET)
+            for future in completed_iter:
+                tag, items = future.result()
+                processed.add(future)
+                if tag == "jp":
+                    jp_items += items
+                elif tag == "special":
+                    special_items += items
+                else:
+                    other_items += items
+        except TimeoutError:
+            skipped = sum(1 for f in futures if not f.done())
+            if skipped:
+                print(f"[RSS] 取得予算超過: 未完了{skipped}件をスキップ", flush=True)
+        for future in futures:
+            if future.done():
+                continue
+            future.cancel()
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    # 予算内に完了したが、as_completedのタイムアウト直後にdoneになったものを拾う
+    for future in futures:
+        if future in processed:
+            continue
+        if future.done() and not future.cancelled():
+            try:
+                tag, items = future.result()
+            except Exception:
+                continue
             if tag == "jp":
                 jp_items += items
             elif tag == "special":

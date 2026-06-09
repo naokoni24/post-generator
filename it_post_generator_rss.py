@@ -1132,6 +1132,27 @@ function setLang(l){activeLang=l;renderLangs();}
 
 function setStatus(on,txt){el('statusText').textContent=txt||'';el('statusBar').style.display=on?'flex':'none';}
 function showError(msg){const eb=el('errorBox');eb.textContent=msg;eb.style.display='block';setTimeout(()=>eb.style.display='none',6000);}
+function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+
+async function fetchCandidatesWithRetry(category, lang, includeX, days){
+  const url=`/api/rss?category=${encodeURIComponent(category)}&lang=${lang}&include_x=${includeX}&days=${days}`;
+  let lastError=null;
+  for(let attempt=1;attempt<=3;attempt++){
+    try{
+      if(attempt>1)setStatus(true,`候補取得を再試行中...（${attempt}/3）`);
+      const r=await fetch(url,{cache:'no-store'});
+      let data=null;
+      try{data=await r.json();}catch(e){throw new Error(`応答を読み取れませんでした (${r.status})`);}
+      if(!r.ok||data.error)throw new Error(data.error||`HTTP ${r.status}`);
+      if(data.articles&&data.articles.length)return data.articles;
+      throw new Error('記事が見つかりませんでした');
+    }catch(e){
+      lastError=e;
+      if(attempt<3)await sleep(700*attempt);
+    }
+  }
+  throw lastError||new Error('記事が見つかりませんでした');
+}
 
 async function callProxy(messages){
   const r=await fetch('/api/claude',{
@@ -1283,11 +1304,7 @@ el('generateBtn').onclick=async()=>{
   try{
     const includeX=el('includeX').checked?'1':'0';
     const days=el('recentDays').value;
-    const r=await fetch(`/api/rss?category=${encodeURIComponent(activeCat)}&lang=${activeLang}&include_x=${includeX}&days=${days}`);
-    const data=await r.json();
-    if(data.error)throw new Error(data.error);
-    candidates=data.articles;
-    if(!candidates||!candidates.length)throw new Error('記事が見つかりませんでした。時間をおいて再試行してください。');
+    candidates=await fetchCandidatesWithRetry(activeCat,activeLang,includeX,days);
     el('loadingSkels').style.display='none';
     setStatus(false);
     setFetching(false);
@@ -1593,20 +1610,26 @@ class Handler(BaseHTTPRequestHandler):
                 include_x = params.get("include_x", ["0"])[0] == "1"
                 days = int(params.get("days", [str(RECENT_DAYS)])[0])
                 print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
+                def _load_articles(target_days):
+                    return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=False)
                 try:
-                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days, translate=False)
+                    articles = _load_articles(days)
                 except Exception as first_error:
                     print(f"[候補取得] 初回失敗、再試行します: {first_error}", flush=True)
                     _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
-                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days, translate=False)
+                    articles = _load_articles(days)
                 if not articles:
                     print("[候補取得] 初回0件、失敗キャッシュをクリアして再試行します", flush=True)
                     _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
-                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days, translate=False)
+                    articles = _load_articles(days)
+                if not articles and days == 0:
+                    print("[候補取得] 当日0件のため1日前まで広げて再試行します", flush=True)
+                    _RSS_FAIL_CACHE.clear()
+                    articles = _load_articles(1)
                 print(f"[候補取得] 取得件数={len(articles)}", flush=True)
                 self.send_json(200, {"articles": articles})
             except Exception as e:

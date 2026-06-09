@@ -33,8 +33,11 @@ except ImportError:
 API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 PORT       = int(os.environ.get("PORT", 8765))
 RECENT_DAYS = 0
-RSS_FETCH_TIMEOUT = 1.0
-RSS_FETCH_BUDGET = 1.2
+RSS_FETCH_TIMEOUT = 1.8
+RSS_FETCH_FAST_BUDGET = 1.2
+RSS_FETCH_MAX_BUDGET = 2.6
+RSS_PER_FEED_LIMIT = 10
+SPECIAL_PER_FEED_LIMIT = 5
 
 # Cookie認証（環境変数で設定。未設定なら認証なし）
 BASIC_USER = os.environ.get("BASIC_USER", "")
@@ -187,7 +190,6 @@ RSS_FEEDS = {
         {"url": "https://feeds.arstechnica.com/arstechnica/gadgets", "source": "Ars Technica Gadgets"},
         {"url": "https://gizmodo.com/rss", "source": "Gizmodo"},
         {"url": "https://www.tomshardware.com/feeds/all", "source": "Tom's Hardware"},
-        {"url": "https://www.anandtech.com/rss/", "source": "AnandTech"},
     ],
     "ビジネス・DX": [
         # 国内
@@ -199,7 +201,6 @@ RSS_FEEDS = {
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         # 海外
         {"url": "https://techcrunch.com/category/enterprise/feed/", "source": "TechCrunch Enterprise"},
-        {"url": "https://sloanreview.mit.edu/feed/", "source": "MIT Sloan Review"},
         {"url": "https://feeds.feedburner.com/fastcompany/headlines", "source": "Fast Company"},
         {"url": "https://www.zdnet.com/topic/digital-transformation/rss.xml", "source": "ZDNet DX"},
     ],
@@ -233,7 +234,7 @@ GITHUB_RELEASE_FEEDS = {
         {"url": "https://github.com/stripe/stripe-node/releases.atom", "source": "GitHub Releases: stripe/stripe-node"},
     ],
     "便利ツール・Tips": [
-        {"url": "https://github.com/raycast/extensions/releases.atom", "source": "GitHub Releases: raycast/extensions"},
+        {"url": "https://www.raycast.com/changelog/feed.xml", "source": "Raycast Changelog"},
         {"url": "https://github.com/obsidianmd/obsidian-releases/releases.atom", "source": "GitHub Releases: obsidianmd/obsidian-releases"},
         {"url": "https://github.com/microsoft/vscode/releases.atom", "source": "GitHub Releases: microsoft/vscode"},
     ],
@@ -278,8 +279,6 @@ DOCS_UPDATE_FEEDS = {
         {"url": "https://developer.apple.com/news/releases/rss/releases.rss", "source": "Apple Developer Releases"},
     ],
     "ビジネス・DX": [
-        {"url": "https://workspace.google.com/intl/ja/blog/feed/", "source": "Google Workspace Blog"},
-        {"url": "https://www.microsoft.com/en-us/microsoft-365/blog/feed/", "source": "Microsoft 365 Blog"},
     ],
 }
 
@@ -511,23 +510,52 @@ def fetch_rss(feed_url, source, limit=5, article_type=None):
         ns = {'atom': 'http://www.w3.org/2005/Atom'}
         items = []
 
+        def _local_name(elem):
+            return elem.tag.rsplit('}', 1)[-1] if '}' in elem.tag else elem.tag
+
+        def _children_by_name(elem, name):
+            return [child for child in list(elem) if _local_name(child) == name]
+
+        def _first_text(elem, *names):
+            for name in names:
+                for child in _children_by_name(elem, name):
+                    if child.text:
+                        return child.text
+            return ''
+
         # RSS 2.0
-        for item in root.findall('.//item')[:limit]:
-            title = strip_tags(item.findtext('title', ''))
-            link  = strip_tags(item.findtext('link', ''))
-            date  = strip_tags(item.findtext('pubDate', '') or item.findtext('dc:date', '', {'dc': 'http://purl.org/dc/elements/1.1/'}))
-            summary = item.findtext('description', '') or item.findtext('summary', '')
+        rss_items = [elem for elem in root.iter() if _local_name(elem) == 'item']
+        for item in rss_items[:limit]:
+            title = strip_tags(_first_text(item, 'title'))
+            link  = strip_tags(_first_text(item, 'link'))
+            date  = strip_tags(_first_text(item, 'pubDate', 'date', 'updated', 'published'))
+            summary = _first_text(item, 'description', 'summary', 'content')
             if title and link:
                 items.append(build_article(title, link, source, date, article_type=article_type, summary=summary))
 
         # Atom
         if not items:
-            for entry in root.findall('atom:entry', ns)[:limit]:
-                title = strip_tags(entry.findtext('atom:title', '', ns))
+            atom_entries = root.findall('atom:entry', ns) or [
+                elem for elem in root.iter() if _local_name(elem) == 'entry'
+            ]
+            for entry in atom_entries[:limit]:
+                title = strip_tags(entry.findtext('atom:title', '', ns) or _first_text(entry, 'title'))
                 link_el = entry.find('atom:link', ns)
+                if link_el is None:
+                    link_el = next((child for child in _children_by_name(entry, 'link')), None)
                 link = link_el.get('href', '') if link_el is not None else ''
-                date = strip_tags(entry.findtext('atom:published', '', ns) or entry.findtext('atom:updated', '', ns))
-                summary = entry.findtext('atom:summary', '', ns) or entry.findtext('atom:content', '', ns)
+                if not link and link_el is not None and link_el.text:
+                    link = link_el.text
+                date = strip_tags(
+                    entry.findtext('atom:published', '', ns)
+                    or entry.findtext('atom:updated', '', ns)
+                    or _first_text(entry, 'published', 'updated', 'date')
+                )
+                summary = (
+                    entry.findtext('atom:summary', '', ns)
+                    or entry.findtext('atom:content', '', ns)
+                    or _first_text(entry, 'summary', 'content')
+                )
                 if title and link:
                     items.append(build_article(title, link, source, date, article_type=article_type, summary=summary))
 
@@ -619,7 +647,7 @@ def translate_titles(articles):
         (i, a)
         for i, a in enumerate(articles)
         if is_english((a.get("title", "") + " " + a.get("summary", "")).strip())
-    ][:10]  # 翻訳は最大10件に制限（速度優先）
+    ][:20]  # 返却候補20件分を日本語表示に変換
     if not targets:
         return articles
 
@@ -642,7 +670,7 @@ def translate_titles(articles):
         print("[翻訳] キャッシュを使用", flush=True)
         return articles
 
-    # 10件を1バッチで翻訳（API往復を減らして速度優先）
+    # 10件ずつ並列翻訳（20件返却でも選びやすい日本語表示を維持）
     from concurrent.futures import ThreadPoolExecutor as _TPE
     BATCH_SIZE = 10
     batches = [targets[i:i+BATCH_SIZE] for i in range(0, len(targets), BATCH_SIZE)]
@@ -692,6 +720,7 @@ def translate_titles(articles):
     return articles
 
 def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
+    import time as _time
     from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 
     feeds = RSS_FEEDS.get(category, RSS_FEEDS["AI・機械学習"])
@@ -699,7 +728,7 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
 
     # RSS / GitHub Releases / Docs更新 をすべて同時並列フェッチ
     def _fetch_rss(feed, article_type=None):
-        lim = 2 if feed["source"].startswith("arxiv") else 5
+        lim = 3 if feed["source"].startswith("arxiv") else RSS_PER_FEED_LIMIT
         items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type)
         return "jp" if (lang == "jp" and any(jp in feed["source"] for jp in jp_sources)) else "other", items
 
@@ -714,6 +743,28 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
     )
 
     jp_items, other_items, special_items = [], [], []
+    days_limit = recent_days if recent_days is not None else RECENT_DAYS
+
+    def _store_items(tag, items):
+        if tag == "jp":
+            jp_items.extend(items)
+        elif tag == "special":
+            special_items.extend(items)
+        else:
+            other_items.extend(items)
+
+    def _recent_candidate_count():
+        seen = set()
+        count = 0
+        for article in jp_items + special_items + other_items:
+            url = article.get("url", "")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            age_days = article_age_days(article)
+            if article.get("type") == "official_x" or (age_days is not None and age_days <= days_limit):
+                count += 1
+        return count
 
     executor = ThreadPoolExecutor(max_workers=12)
     futures = {}
@@ -721,24 +772,36 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
     try:
         for feed, atype in all_tasks:
             if atype in ("github_release", "docs_update"):
-                futures[executor.submit(_fetch_group, feed, atype, 3)] = atype
+                futures[executor.submit(_fetch_group, feed, atype, SPECIAL_PER_FEED_LIMIT)] = atype
             else:
                 futures[executor.submit(_fetch_rss, feed)] = "rss"
+        started_at = _time.monotonic()
         try:
-            completed_iter = as_completed(futures, timeout=RSS_FETCH_BUDGET)
+            completed_iter = as_completed(futures, timeout=RSS_FETCH_FAST_BUDGET)
             for future in completed_iter:
                 tag, items = future.result()
                 processed.add(future)
-                if tag == "jp":
-                    jp_items += items
-                elif tag == "special":
-                    special_items += items
-                else:
-                    other_items += items
+                _store_items(tag, items)
         except TimeoutError:
-            skipped = sum(1 for f in futures if not f.done())
-            if skipped:
-                print(f"[RSS] 取得予算超過: 未完了{skipped}件をスキップ", flush=True)
+            pass
+
+        pending = [future for future in futures if future not in processed and not future.done()]
+        if pending and _recent_candidate_count() < limit:
+            remaining_budget = max(0.0, RSS_FETCH_MAX_BUDGET - (_time.monotonic() - started_at))
+            if remaining_budget > 0:
+                try:
+                    for future in as_completed(pending, timeout=remaining_budget):
+                        tag, items = future.result()
+                        processed.add(future)
+                        _store_items(tag, items)
+                        if _recent_candidate_count() >= limit:
+                            break
+                except TimeoutError:
+                    pass
+
+        skipped = sum(1 for f in futures if f not in processed and not f.done())
+        if skipped:
+            print(f"[RSS] 取得予算超過: 未完了{skipped}件をスキップ", flush=True)
         for future in futures:
             if future.done():
                 continue
@@ -755,12 +818,7 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
                 tag, items = future.result()
             except Exception:
                 continue
-            if tag == "jp":
-                jp_items += items
-            elif tag == "special":
-                special_items += items
-            else:
-                other_items += items
+            _store_items(tag, items)
 
     if include_x:
         special_items += get_official_x_candidates(category, limit=2)
@@ -773,18 +831,22 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
             seen.add(a["url"])
             a["ageDays"] = article_age_days(a)
             unique.append(a)
-    days_limit = recent_days if recent_days is not None else RECENT_DAYS
-    recent = [
-        a for a in unique
-        if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= days_limit)
-    ]
-    unique = recent
     unique.sort(
         key=lambda a: (
             -a.get("sortTime", 0),
             -a.get("trustScore", 0),
         )
     )
+    recent = [
+        a for a in unique
+        if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= days_limit)
+    ]
+    if len(recent) < limit:
+        recent_urls = {a.get("url", "") for a in recent}
+        backfill = [a for a in unique if a.get("url", "") not in recent_urls]
+        unique = recent + backfill
+    else:
+        unique = recent
     type_caps = {
         "github_release": 3,
         "docs_update": 3,
@@ -1477,7 +1539,7 @@ class Handler(BaseHTTPRequestHandler):
                 include_x = params.get("include_x", ["0"])[0] == "1"
                 days = int(params.get("days", [str(RECENT_DAYS)])[0])
                 print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
-                articles = get_articles(category, lang, limit=10, include_x=include_x, recent_days=days)
+                articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
                 print(f"[候補取得] 取得件数={len(articles)}", flush=True)
                 self.send_json(200, {"articles": articles})
             except Exception as e:

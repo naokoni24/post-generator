@@ -1028,8 +1028,8 @@ HTML = r"""<!DOCTYPE html>
     <label class="source-toggle" style="margin-left:8px">
       <span style="color:#888;font-size:12px">期間：</span>
       <select id="recentDays" style="font-size:13px;border:none;background:transparent;color:#555;cursor:pointer;outline:none">
-        <option value="0">今日</option>
-        <option value="1" selected>1日以内</option>
+        <option value="0" selected>今日</option>
+        <option value="1">1日以内</option>
         <option value="3">3日以内</option>
         <option value="7">1週間以内</option>
       </select>

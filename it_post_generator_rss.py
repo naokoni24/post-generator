@@ -1075,7 +1075,8 @@ const OPINION_STYLES=[
 ];
 let activeOpinionStyle='impression';
 let activeCat='AI・機械学習', activeLang='jp';
-let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=10;
+const INITIAL_VISIBLE_COUNT=20;
+let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
 
 function el(id){return document.getElementById(id);}
 function getTags(){return tags.filter(t=>t.on).map(t=>t.t).join(' ');}
@@ -1228,7 +1229,7 @@ async function translateCandidatesInBackground(){
 }
 
 el('moreBtn').onclick=()=>{
-  visibleCount=Math.min(visibleCount+10,candidates.length);
+  visibleCount=Math.min(visibleCount+INITIAL_VISIBLE_COUNT,candidates.length);
   renderCands();
 };
 
@@ -1248,7 +1249,7 @@ el('generateBtn').onclick=async()=>{
   el('loadingSkels').innerHTML=Array.from({length:5}).map(()=>`<div class="skel-card"><div class="skel" style="width:60%"></div><div class="skel" style="width:95%"></div><div class="skel" style="width:80%"></div></div>`).join('');
   el('generateBtn').disabled=true;
   el('generateBtn').innerHTML='<div class="spinner"></div>取得中...';
-  selectedIdx=-1;visibleCount=10;el('selectBtn').disabled=true;
+  selectedIdx=-1;visibleCount=INITIAL_VISIBLE_COUNT;el('selectBtn').disabled=true;
   el('opinionPanel').style.display='none';
   el('stickyBar').style.display='none';
   document.body.classList.remove('has-sticky');

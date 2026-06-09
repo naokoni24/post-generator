@@ -38,6 +38,7 @@ RSS_FETCH_FAST_BUDGET = 1.2
 RSS_FETCH_MAX_BUDGET = 2.6
 RSS_PER_FEED_LIMIT = 10
 SPECIAL_PER_FEED_LIMIT = 5
+RSS_EMPTY_RETRY_DELAY = 0.8
 
 # Cookie認証（環境変数で設定。未設定なら認証なし）
 BASIC_USER = os.environ.get("BASIC_USER", "")
@@ -1539,7 +1540,20 @@ class Handler(BaseHTTPRequestHandler):
                 include_x = params.get("include_x", ["0"])[0] == "1"
                 days = int(params.get("days", [str(RECENT_DAYS)])[0])
                 print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
-                articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
+                try:
+                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
+                except Exception as first_error:
+                    print(f"[候補取得] 初回失敗、再試行します: {first_error}", flush=True)
+                    _RSS_FAIL_CACHE.clear()
+                    import time as _time
+                    _time.sleep(RSS_EMPTY_RETRY_DELAY)
+                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
+                if not articles:
+                    print("[候補取得] 初回0件、失敗キャッシュをクリアして再試行します", flush=True)
+                    _RSS_FAIL_CACHE.clear()
+                    import time as _time
+                    _time.sleep(RSS_EMPTY_RETRY_DELAY)
+                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
                 print(f"[候補取得] 取得件数={len(articles)}", flush=True)
                 self.send_json(200, {"articles": articles})
             except Exception as e:

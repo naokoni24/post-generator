@@ -32,7 +32,7 @@ except ImportError:
 
 API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 PORT       = int(os.environ.get("PORT", 8765))
-RECENT_DAYS = 3
+RECENT_DAYS = 1
 
 # Cookie認証（環境変数で設定。未設定なら認証なし）
 BASIC_USER = os.environ.get("BASIC_USER", "")
@@ -845,8 +845,8 @@ HTML = r"""<!DOCTYPE html>
       <span style="color:#888;font-size:12px">期間：</span>
       <select id="recentDays" style="font-size:13px;border:none;background:transparent;color:#555;cursor:pointer;outline:none">
         <option value="0">今日</option>
-        <option value="1">1日以内</option>
-        <option value="3" selected>3日以内</option>
+        <option value="1" selected>1日以内</option>
+        <option value="3">3日以内</option>
         <option value="7">1週間以内</option>
       </select>
     </label>

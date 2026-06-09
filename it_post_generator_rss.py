@@ -372,6 +372,11 @@ JP_PRIORITY_SOURCES = [
     "Lifehacker Japan",
     "BRIDGE",
     "TechCrunch Japan",
+    "AINOW",
+    "日経",
+    "Gizmodo Japan",
+    "ケータイ Watch",
+    "クラウド Watch",
     "はてブ",
 ]
 
@@ -727,11 +732,14 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
     feeds = RSS_FEEDS.get(category, RSS_FEEDS["AI・機械学習"])
     jp_sources = set(JP_PRIORITY_SOURCES)
 
+    def _is_jp_source(source):
+        return any(jp in source for jp in jp_sources)
+
     # RSS / GitHub Releases / Docs更新 をすべて同時並列フェッチ
     def _fetch_rss(feed, article_type=None):
         lim = 3 if feed["source"].startswith("arxiv") else RSS_PER_FEED_LIMIT
         items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type)
-        return "jp" if (lang == "jp" and any(jp in feed["source"] for jp in jp_sources)) else "other", items
+        return "jp" if _is_jp_source(feed["source"]) else "other", items
 
     def _fetch_group(feed, article_type, per_limit):
         items = fetch_rss(feed["url"], feed["source"], limit=per_limit, article_type=article_type)
@@ -824,7 +832,7 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
     if include_x:
         special_items += get_official_x_candidates(category, limit=2)
 
-    all_items = jp_items + special_items + other_items
+    all_items = (jp_items + special_items + other_items) if lang == "jp" else (special_items + other_items + jp_items)
     seen = set()
     unique = []
     for a in all_items:
@@ -832,12 +840,18 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
             seen.add(a["url"])
             a["ageDays"] = article_age_days(a)
             unique.append(a)
-    unique.sort(
-        key=lambda a: (
+    def _article_sort_key(a):
+        return (
+            0 if (a.get("type") in ("github_release", "docs_update", "official_x")) else (
+                0 if (lang == "jp" and _is_jp_source(a.get("source", ""))) else
+                0 if (lang != "jp" and not _is_jp_source(a.get("source", ""))) else
+                1
+            ),
             -a.get("sortTime", 0),
             -a.get("trustScore", 0),
         )
-    )
+
+    unique.sort(key=_article_sort_key)
     recent = [
         a for a in unique
         if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= days_limit)
@@ -848,6 +862,7 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
         unique = recent + backfill
     else:
         unique = recent
+    unique.sort(key=_article_sort_key)
     type_caps = {
         "github_release": 3,
         "docs_update": 3,
@@ -855,7 +870,7 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
         "official_blog": 8,
         "rss_news": limit,  # per_source制御で多様性を担保するためtype上限は緩める
     }
-    MAX_PER_SOURCE = 2  # 同一ソースの占有を防ぐ（最大2件）
+    MAX_PER_SOURCE = 2  # 同一ソースの占有を防ぐ（原則最大2件）
     type_counts = {}
     source_counts = {}
     articles = []
@@ -880,11 +895,21 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
             type_counts[article_type] = type_counts.get(article_type, 0) + 1
             source_counts[source] = source_counts.get(source, 0) + 1
 
-    _add(unique, MAX_PER_SOURCE)          # 第1パス: ソース上限2件
+    fresh_days_limit = max(days_limit, 1)
+    fresh_pool = [
+        article for article in unique
+        if article.get("type") == "official_x"
+        or article.get("ageDays") is None
+        or article.get("ageDays") <= fresh_days_limit
+    ]
+
+    _add(fresh_pool, 1)             # 第1パス: 直近記事から各ソース1件ずつ
     if len(articles) < limit:
-        _add(unique, MAX_PER_SOURCE + 2)  # 第2パス: ソース上限4件に緩和
+        _add(fresh_pool, MAX_PER_SOURCE)  # 第2パス: 直近記事の2件目まで許可
     if len(articles) < limit:
-        _add(unique, limit)               # 第3パス: 上限なし（フォールバック）
+        _add(unique, MAX_PER_SOURCE)  # 第3パス: 古い記事も含めて補完
+    if len(articles) < min(limit, 12):
+        _add(unique, limit)  # 候補不足時だけ上限を緩和
     if translate:
         articles = translate_titles(articles)
     return articles

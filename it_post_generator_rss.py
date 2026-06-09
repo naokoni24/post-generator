@@ -32,7 +32,8 @@ except ImportError:
 
 API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 PORT       = int(os.environ.get("PORT", 8765))
-RECENT_DAYS = 1
+RECENT_DAYS = 0
+RSS_FETCH_TIMEOUT = 1.2
 
 # Cookie認証（環境変数で設定。未設定なら認証なし）
 BASIC_USER = os.environ.get("BASIC_USER", "")
@@ -104,7 +105,6 @@ RSS_FEEDS = {
         {"url": "https://www.technologyreview.com/feed/", "source": "MIT Technology Review"},
         {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
         # HN（AI関連キーワード絞り込み）
-        {"url": "https://hnrss.org/newest?q=AI+OR+LLM+OR+GPT+OR+Claude+OR+Gemini&points=10", "source": "Hacker News AI"},
         # arxiv（各2件に絞る → per_feed_limitで制御）
         {"url": "https://rss.arxiv.org/rss/cs.AI", "source": "arxiv AI"},
         {"url": "https://rss.arxiv.org/rss/cs.LG", "source": "arxiv ML"},
@@ -121,7 +121,7 @@ RSS_FEEDS = {
         {"url": "https://azurecomcdn.azureedge.net/en-us/updates/feed/", "source": "Azure Updates"},
         {"url": "https://www.zdnet.com/topic/cloud/rss.xml", "source": "ZDNet Cloud"},
         {"url": "https://thenewstack.io/feed/", "source": "The New Stack"},
-        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
+        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
     ],
     "セキュリティ": [
         # 国内
@@ -134,7 +134,7 @@ RSS_FEEDS = {
         {"url": "https://www.darkreading.com/rss.xml", "source": "Dark Reading"},
         {"url": "https://www.zdnet.com/topic/security/rss.xml", "source": "ZDNet Security"},
         {"url": "https://isc.sans.edu/rssfeed_full.xml", "source": "SANS Internet Storm Center"},
-        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
+        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
     ],
     "開発": [
         # 国内
@@ -149,7 +149,7 @@ RSS_FEEDS = {
         {"url": "https://stackoverflow.blog/feed/", "source": "Stack Overflow Blog"},
         {"url": "https://www.smashingmagazine.com/feed/", "source": "Smashing Magazine"},
         {"url": "https://css-tricks.com/feed/", "source": "CSS-Tricks"},
-        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
+        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
     ],
     "スタートアップ": [
         # 国内
@@ -162,7 +162,7 @@ RSS_FEEDS = {
         {"url": "https://www.theverge.com/rss/index.xml", "source": "The Verge"},
         {"url": "https://feeds.businessinsider.com/custom/all", "source": "Business Insider"},
         {"url": "https://techcrunch.com/feed/", "source": "TechCrunch"},
-        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
+        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
     ],
     "便利ツール・Tips": [
         # 国内
@@ -174,8 +174,7 @@ RSS_FEEDS = {
         # 海外
         {"url": "https://www.producthunt.com/feed", "source": "Product Hunt"},
         {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
-        {"url": "https://www.howtogeek.com/feed/", "source": "How-To Geek"},
-        {"url": "https://hnrss.org/frontpage", "source": "Hacker News"},
+        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
     ],
     "ガジェット・ハードウェア": [
         # 国内
@@ -485,12 +484,29 @@ def fetch_article_body(url, char_limit=1500):
         print(f"[記事取得] 失敗: {e}", flush=True)
         return ""
 
+_RSS_CACHE = {}  # {feed_url: (timestamp, items_list)}
+_RSS_CACHE_TTL = 300  # 5分キャッシュ
+_RSS_FAIL_CACHE = {}  # {feed_url: timestamp}
+_RSS_FAIL_CACHE_TTL = 600  # 10分間、失敗したフィードをスキップ
+
 def fetch_rss(feed_url, source, limit=5, article_type=None):
+    import time as _time
+    failed_at = _RSS_FAIL_CACHE.get(feed_url)
+    if failed_at and _time.time() - failed_at < _RSS_FAIL_CACHE_TTL:
+        return []
+
+    # キャッシュヒット確認
+    cached = _RSS_CACHE.get(feed_url)
+    if cached:
+        ts, cached_items = cached
+        if _time.time() - ts < _RSS_CACHE_TTL:
+            return cached_items[:limit]
+
     try:
         import urllib.request
         opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
         req = Request(feed_url, headers={"User-Agent": "Mozilla/5.0"})
-        with opener.open(req, timeout=4) as res:
+        with opener.open(req, timeout=RSS_FETCH_TIMEOUT) as res:
             raw = res.read()
         root = ET.fromstring(raw)
         ns = {'atom': 'http://www.w3.org/2005/Atom'}
@@ -516,8 +532,12 @@ def fetch_rss(feed_url, source, limit=5, article_type=None):
                 if title and link:
                     items.append(build_article(title, link, source, date, article_type=article_type, summary=summary))
 
-        return items
+        # キャッシュ保存（上限なしの全件を保存してlimitはスライスで対応）
+        _RSS_CACHE[feed_url] = (_time.time(), items)
+        _RSS_FAIL_CACHE.pop(feed_url, None)
+        return items[:limit]
     except Exception as e:
+        _RSS_FAIL_CACHE[feed_url] = _time.time()
         print(f"[RSS] {source} 取得失敗: {e}", flush=True)
         return []
 
@@ -567,13 +587,14 @@ TRANSLATE_PROMPT_BASE = (
     "- JSON配列のみを返す。説明文やMarkdownは不要\n"
     '- 各要素は {"index": 数字, "title_ja": 文字列, "summary_ja": 文字列} の形にする\n\n'
 )
+_TRANSLATION_CACHE = {}
 
 def _translate_batch(items_in):
     """items_in リストをAPIで翻訳し、結果リストを返す。失敗時は空リスト"""
     prompt = TRANSLATE_PROMPT_BASE + json.dumps(items_in, ensure_ascii=False)
     body = {
-        "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 2500,  # 10件 × 約200トークン + 余裕
+        "model": "claude-haiku-4-5",
+        "max_tokens": 1600,  # 10件 × 約120トークン + 余裕
         "messages": [{"role": "user", "content": prompt}]
     }
     req = Request(
@@ -599,11 +620,30 @@ def translate_titles(articles):
         (i, a)
         for i, a in enumerate(articles)
         if is_english((a.get("title", "") + " " + a.get("summary", "")).strip())
-    ]
+    ][:10]  # 翻訳は最大10件に制限（速度優先）
     if not targets:
         return articles
 
-    # 10件ずつバッチ分割して並列翻訳（token超過・タイムアウト防止）
+    uncached_targets = []
+    for idx, article in targets:
+        cache_key = (article.get("title", ""), article.get("summary", ""))
+        cached = _TRANSLATION_CACHE.get(cache_key)
+        if cached:
+            title_ja, summary_ja = cached
+            if title_ja:
+                articles[idx]["title_en"] = articles[idx]["title"]
+                articles[idx]["title"] = title_ja
+            if summary_ja:
+                articles[idx]["summary_en"] = articles[idx].get("summary", "")
+                articles[idx]["summary"] = summary_ja
+        else:
+            uncached_targets.append((idx, article, cache_key))
+    targets = [(idx, article) for idx, article, _ in uncached_targets]
+    if not targets:
+        print("[翻訳] キャッシュを使用", flush=True)
+        return articles
+
+    # 10件を1バッチで翻訳（API往復を減らして速度優先）
     from concurrent.futures import ThreadPoolExecutor as _TPE
     BATCH_SIZE = 10
     batches = [targets[i:i+BATCH_SIZE] for i in range(0, len(targets), BATCH_SIZE)]
@@ -645,11 +685,14 @@ def translate_titles(articles):
         if summary_ja:
             articles[orig_idx]["summary_en"] = articles[orig_idx].get("summary", "")
             articles[orig_idx]["summary"] = summary_ja
+        original = next((a for idx, a in targets if idx == orig_idx), None)
+        if original:
+            _TRANSLATION_CACHE[(original.get("title", ""), original.get("summary", ""))] = (title_ja, summary_ja)
 
     print(f"[翻訳] 計{len(targets)}件を日本語表示に変換完了", flush=True)
     return articles
 
-def get_articles(category, lang, limit=20, include_x=False, recent_days=None):
+def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     feeds = RSS_FEEDS.get(category, RSS_FEEDS["AI・機械学習"])
@@ -673,7 +716,7 @@ def get_articles(category, lang, limit=20, include_x=False, recent_days=None):
 
     jp_items, other_items, special_items = [], [], []
 
-    with ThreadPoolExecutor(max_workers=30) as executor:
+    with ThreadPoolExecutor(max_workers=12) as executor:
         futures = {}
         for feed, atype in all_tasks:
             if atype in ("github_release", "docs_update"):
@@ -1083,7 +1126,7 @@ el('generateBtn').onclick=async()=>{
   el('resultCard').style.display='none';
   el('candidatesSection').style.display='none';
   el('loadingSkels').style.display='block';
-  el('loadingSkels').innerHTML=Array.from({length:20}).map(()=>`<div class="skel-card"><div class="skel" style="width:60%"></div><div class="skel" style="width:95%"></div><div class="skel" style="width:80%"></div></div>`).join('');
+  el('loadingSkels').innerHTML=Array.from({length:5}).map(()=>`<div class="skel-card"><div class="skel" style="width:60%"></div><div class="skel" style="width:95%"></div><div class="skel" style="width:80%"></div></div>`).join('');
   el('generateBtn').disabled=true;
   el('generateBtn').innerHTML='<div class="spinner"></div>取得中...';
   selectedIdx=-1;visibleCount=10;el('selectBtn').disabled=true;
@@ -1397,15 +1440,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"body": body_text})
         elif self.path.startswith("/api/rss"):
             from urllib.parse import urlparse, parse_qs
-            params = parse_qs(urlparse(self.path).query)
-            category = params.get("category", ["AI・機械学習"])[0]
-            lang = params.get("lang", ["jp"])[0]
-            include_x = params.get("include_x", ["0"])[0] == "1"
-            days = int(params.get("days", [str(RECENT_DAYS)])[0])
-            print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
-            articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
-            print(f"[候補取得] 取得件数={len(articles)}", flush=True)
-            self.send_json(200, {"articles": articles})
+            try:
+                params = parse_qs(urlparse(self.path).query)
+                category = params.get("category", ["AI・機械学習"])[0]
+                lang = params.get("lang", ["jp"])[0]
+                include_x = params.get("include_x", ["0"])[0] == "1"
+                days = int(params.get("days", [str(RECENT_DAYS)])[0])
+                print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
+                articles = get_articles(category, lang, limit=10, include_x=include_x, recent_days=days)
+                print(f"[候補取得] 取得件数={len(articles)}", flush=True)
+                self.send_json(200, {"articles": articles})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                print(f"[ERROR /api/rss] {e}", flush=True)
+                self.send_json(500, {"error": f"記事取得中にエラーが発生しました: {str(e)}"})
         else:
             body = HTML.encode()
             self.send_response(200)
@@ -1435,7 +1484,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         body = {
-            "model": "claude-haiku-4-5-20251001",
+            "model": "claude-haiku-4-5",
             "max_tokens": 800,
             "messages": messages,
         }

@@ -720,7 +720,7 @@ def translate_titles(articles):
     print(f"[翻訳] 計{len(targets)}件を日本語表示に変換完了", flush=True)
     return articles
 
-def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
+def get_articles(category, lang, limit=10, include_x=False, recent_days=None, translate=True):
     import time as _time
     from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 
@@ -885,7 +885,8 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None):
         _add(unique, MAX_PER_SOURCE + 2)  # 第2パス: ソース上限4件に緩和
     if len(articles) < limit:
         _add(unique, limit)               # 第3パス: 上限なし（フォールバック）
-    articles = translate_titles(articles)
+    if translate:
+        articles = translate_titles(articles)
     return articles
 
 
@@ -1201,6 +1202,31 @@ function selectCand(i){
   renderCands();
 }
 
+async function translateCandidatesInBackground(){
+  if(!candidates.length)return;
+  setStatus(true,'候補を日本語表示に更新中...');
+  try{
+    const r=await fetch('/api/translate_candidates',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({articles:candidates})
+    });
+    const data=await r.json();
+    if(data.articles&&data.articles.length){
+      const selectedUrl=selectedIdx>=0?candidates[selectedIdx]?.url:null;
+      candidates=data.articles;
+      if(selectedUrl){
+        selectedIdx=candidates.findIndex(a=>a.url===selectedUrl);
+      }
+      renderCands();
+    }
+  }catch(e){
+    console.warn('候補翻訳失敗', e);
+  }finally{
+    setStatus(false);
+  }
+}
+
 el('moreBtn').onclick=()=>{
   visibleCount=Math.min(visibleCount+10,candidates.length);
   renderCands();
@@ -1245,6 +1271,7 @@ el('generateBtn').onclick=async()=>{
     el('opinionPanel').style.display='block';
     renderOpinionStyles();
     renderCands();
+    translateCandidatesInBackground();
   }catch(e){
     el('loadingSkels').style.display='none';
     setStatus(false);
@@ -1541,19 +1568,19 @@ class Handler(BaseHTTPRequestHandler):
                 days = int(params.get("days", [str(RECENT_DAYS)])[0])
                 print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
                 try:
-                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
+                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days, translate=False)
                 except Exception as first_error:
                     print(f"[候補取得] 初回失敗、再試行します: {first_error}", flush=True)
                     _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
-                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
+                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days, translate=False)
                 if not articles:
                     print("[候補取得] 初回0件、失敗キャッシュをクリアして再試行します", flush=True)
                     _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
-                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days)
+                    articles = get_articles(category, lang, limit=20, include_x=include_x, recent_days=days, translate=False)
                 print(f"[候補取得] 取得件数={len(articles)}", flush=True)
                 self.send_json(200, {"articles": articles})
             except Exception as e:
@@ -1577,12 +1604,26 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/login")
             self.end_headers()
             return
-        if self.path != "/api/claude":
+        if self.path not in ("/api/claude", "/api/translate_candidates"):
             self.send_json(404, {"error": "not found"})
             return
 
         length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length))
+
+        if self.path == "/api/translate_candidates":
+            articles = payload.get("articles", [])
+            if not isinstance(articles, list):
+                self.send_json(400, {"error": "articles must be a list"})
+                return
+            try:
+                translated = translate_titles(articles[:20])
+                self.send_json(200, {"articles": translated})
+            except Exception as e:
+                print(f"[ERROR /api/translate_candidates] {e}", flush=True)
+                self.send_json(200, {"articles": articles[:20], "warning": str(e)})
+            return
+
         messages = payload.get("messages", [])
 
         if not API_KEY:

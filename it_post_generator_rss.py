@@ -557,6 +557,41 @@ def is_english(text):
     ascii_count = sum(1 for c in text if ord(c) < 128)
     return ascii_count / max(len(text), 1) > 0.7
 
+TRANSLATE_PROMPT_BASE = (
+    "以下のIT記事候補を、ユーザーが選びやすい日本語表示にしてください。\n"
+    "ルール:\n"
+    "- 企業名・サービス名・製品名・人名は英語のまま残す（例: Apple, Meta, Tesla, ChatGPT, AWS）\n"
+    "- 技術用語は一般的な日本語訳を使う\n"
+    "- GitHub Releasesのタイトルは、リポジトリ名とバージョンを残しつつ「何のリリースか」が分かる日本語にする\n"
+    "- summary_ja は80文字以内で、内容や変更点が分かる説明にする\n"
+    "- JSON配列のみを返す。説明文やMarkdownは不要\n"
+    '- 各要素は {"index": 数字, "title_ja": 文字列, "summary_ja": 文字列} の形にする\n\n'
+)
+
+def _translate_batch(items_in):
+    """items_in リストをAPIで翻訳し、結果リストを返す。失敗時は空リスト"""
+    prompt = TRANSLATE_PROMPT_BASE + json.dumps(items_in, ensure_ascii=False)
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 2500,  # 10件 × 約200トークン + 余裕
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    req = Request(
+        "https://api.anthropic.com/v1/messages",
+        data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": API_KEY,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+    with urlopen(req, timeout=20) as res:
+        result = json.loads(res.read())
+    text = result["content"][0]["text"].strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
+    return json.loads(text)
+
 def translate_titles(articles):
     if not API_KEY:
         return articles
@@ -567,63 +602,43 @@ def translate_titles(articles):
     ]
     if not targets:
         return articles
-    items_in = [
-        {
-            "index": idx,
-            "title": article.get("title", ""),
-            "summary": article.get("summary", ""),
-            "type": article.get("typeLabel", ""),
-            "source": article.get("source", ""),
-        }
-        for idx, article in targets
-    ]
-    prompt = (
-        "以下のIT記事候補を、ユーザーが選びやすい日本語表示にしてください。\n"
-        "ルール:\n"
-        "- 企業名・サービス名・製品名・人名は英語のまま残す（例: Apple, Meta, Tesla, ChatGPT, AWS）\n"
-        "- 技術用語は一般的な日本語訳を使う\n"
-        "- GitHub Releasesのタイトルは、リポジトリ名とバージョンを残しつつ「何のリリースか」が分かる日本語にする\n"
-        "- summary_ja は80文字以内で、内容や変更点が分かる説明にする\n"
-        "- JSON配列のみを返す。説明文やMarkdownは不要\n"
-        "- 各要素は {\"index\": 数字, \"title_ja\": 文字列, \"summary_ja\": 文字列} の形にする\n\n"
-        + json.dumps(items_in, ensure_ascii=False)
-    )
-    try:
-        body = {
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 2000,
-            "messages": [{"role": "user", "content": prompt}]
-        }
-        req = Request(
-            "https://api.anthropic.com/v1/messages",
-            data=json.dumps(body).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": API_KEY,
-                "anthropic-version": "2023-06-01",
-            },
-            method="POST",
-        )
-        with urlopen(req, timeout=15) as res:
-            result = json.loads(res.read())
-        text = result["content"][0]["text"].strip()
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
-        translated = json.loads(text)
-        for item in translated:
-            orig_idx = item.get("index")
-            if not isinstance(orig_idx, int) or orig_idx < 0 or orig_idx >= len(articles):
-                continue
-            title_ja = (item.get("title_ja") or "").strip()
-            summary_ja = (item.get("summary_ja") or "").strip()
-            if title_ja:
-                articles[orig_idx]["title_en"] = articles[orig_idx]["title"]
-                articles[orig_idx]["title"] = title_ja
-            if summary_ja:
-                articles[orig_idx]["summary_en"] = articles[orig_idx].get("summary", "")
-                articles[orig_idx]["summary"] = summary_ja
-        print(f"[翻訳] 候補{len(targets)}件を日本語表示に変換完了", flush=True)
-    except Exception as e:
-        print(f"[翻訳] 失敗: {e}", flush=True)
+
+    # 10件ずつバッチ分割して翻訳（token超過・タイムアウト防止）
+    BATCH_SIZE = 10
+    translated_all = []
+    for batch_start in range(0, len(targets), BATCH_SIZE):
+        batch = targets[batch_start:batch_start + BATCH_SIZE]
+        items_in = [
+            {
+                "index": idx,
+                "title": article.get("title", ""),
+                "summary": article.get("summary", ""),
+                "type": article.get("typeLabel", ""),
+                "source": article.get("source", ""),
+            }
+            for idx, article in batch
+        ]
+        try:
+            translated_all += _translate_batch(items_in)
+            print(f"[翻訳] バッチ {batch_start//BATCH_SIZE+1}: {len(batch)}件完了", flush=True)
+        except Exception as e:
+            print(f"[翻訳] バッチ {batch_start//BATCH_SIZE+1} 失敗: {e}", flush=True)
+            # 失敗したバッチはスキップ（翻訳なしで表示）
+
+    for item in translated_all:
+        orig_idx = item.get("index")
+        if not isinstance(orig_idx, int) or orig_idx < 0 or orig_idx >= len(articles):
+            continue
+        title_ja = (item.get("title_ja") or "").strip()
+        summary_ja = (item.get("summary_ja") or "").strip()
+        if title_ja:
+            articles[orig_idx]["title_en"] = articles[orig_idx]["title"]
+            articles[orig_idx]["title"] = title_ja
+        if summary_ja:
+            articles[orig_idx]["summary_en"] = articles[orig_idx].get("summary", "")
+            articles[orig_idx]["summary"] = summary_ja
+
+    print(f"[翻訳] 計{len(targets)}件を日本語表示に変換完了", flush=True)
     return articles
 
 def get_articles(category, lang, limit=20, include_x=False, recent_days=None):

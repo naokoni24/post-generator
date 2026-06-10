@@ -1180,7 +1180,7 @@ function showError(msg){const eb=el('errorBox');eb.textContent=msg;eb.style.disp
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 
 async function fetchCandidatesWithRetry(category, lang, includeX, days){
-  const url=`/api/rss?category=${encodeURIComponent(category)}&lang=${lang}&include_x=${includeX}&days=${days}`;
+  const url=`/api/rss?category=${encodeURIComponent(category)}&lang=${lang}&include_x=${includeX}&days=${days}&_=${Date.now()}`;
   let lastError=null;
   for(let attempt=1;attempt<=3;attempt++){
     try{
@@ -1189,7 +1189,10 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days){
       let data=null;
       try{data=await r.json();}catch(e){throw new Error(`応答を読み取れませんでした (${r.status})`);}
       if(!r.ok||data.error)throw new Error(data.error||`HTTP ${r.status}`);
-      if(data.articles&&data.articles.length)return data.articles;
+      if(data.articles&&data.articles.length){
+        console.log('[候補取得]', {count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days});
+        return data.articles;
+      }
       throw new Error('記事が見つかりませんでした');
     }catch(e){
       lastError=e;
@@ -1587,6 +1590,9 @@ class Handler(BaseHTTPRequestHandler):
         body = page.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Content-Length", len(body))
         self.end_headers()
         self.wfile.write(body)
@@ -1616,6 +1622,9 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.send_header("Content-Length", len(body))
         self.end_headers()
         self.wfile.write(body)
@@ -1673,7 +1682,14 @@ class Handler(BaseHTTPRequestHandler):
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
                     articles = _load_articles(days)
                 print(f"[候補取得] 取得件数={len(articles)}", flush=True)
-                self.send_json(200, {"articles": articles})
+                self.send_json(200, {
+                    "articles": articles,
+                    "count": len(articles),
+                    "category": category,
+                    "lang": lang,
+                    "days": days,
+                    "include_x": include_x,
+                })
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -1683,6 +1699,9 @@ class Handler(BaseHTTPRequestHandler):
             body = HTML.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
             self.send_header("Content-Length", len(body))
             self.end_headers()
             self.wfile.write(body)

@@ -852,8 +852,6 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
                         tag, items = future.result()
                         processed.add(future)
                         _store_items(tag, items)
-                        if _recent_candidate_count() >= limit:
-                            break
                 except TimeoutError:
                     pass
 
@@ -951,6 +949,8 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
         _add(fresh_pool, MAX_PER_SOURCE)  # 第2パス: 直近記事の2件目まで許可
     if len(articles) < limit:
         _add(fresh_pool, MAX_PER_SOURCE + 1)  # 第3パス: 足りない時だけ3件目を許可
+    if len(articles) < limit:
+        _add(fresh_pool, MAX_PER_SOURCE + 2)  # 第4パス: 期間内候補で20件を優先
     if len(articles) < limit:
         _add(unique, MAX_PER_SOURCE)
     if len(articles) < min(limit, 12):
@@ -1655,6 +1655,7 @@ class Handler(BaseHTTPRequestHandler):
                 include_x = params.get("include_x", ["0"])[0] == "1"
                 days = int(params.get("days", [str(RECENT_DAYS)])[0])
                 print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
+                _RSS_FAIL_CACHE.clear()
                 def _load_articles(target_days):
                     return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=False)
                 try:

@@ -39,6 +39,7 @@ RSS_FETCH_MAX_BUDGET = 2.6
 RSS_PER_FEED_LIMIT = 10
 SPECIAL_PER_FEED_LIMIT = 5
 RSS_EMPTY_RETRY_DELAY = 0.8
+RESULT_CACHE_TTL = 1800
 
 # Cookie認証（環境変数で設定。未設定なら認証なし）
 BASIC_USER = os.environ.get("BASIC_USER", "")
@@ -492,6 +493,33 @@ _RSS_CACHE = {}  # {feed_url: (timestamp, items_list)}
 _RSS_CACHE_TTL = 300  # 5分キャッシュ
 _RSS_FAIL_CACHE = {}  # {feed_url: timestamp}
 _RSS_FAIL_CACHE_TTL = 600  # 10分間、失敗したフィードをスキップ
+_RESULT_CACHE = {}  # {(category, lang, include_x, days): (timestamp, articles)}
+
+def merge_result_cache(cache_key, articles, limit, days_limit):
+    """同じ検索条件の前回結果で、一時的な取得漏れを補完する。"""
+    import time as _time
+    now = _time.time()
+    cached = _RESULT_CACHE.get(cache_key)
+    merged = [dict(article) for article in articles]
+    seen = {article.get("url") for article in merged if article.get("url")}
+
+    if cached and now - cached[0] < RESULT_CACHE_TTL:
+        for article in cached[1]:
+            if len(merged) >= limit:
+                break
+            url = article.get("url")
+            if not url or url in seen:
+                continue
+            age_days = article_age_days(article)
+            if article.get("type") != "official_x" and (age_days is None or age_days > days_limit):
+                continue
+            restored = dict(article)
+            restored["ageDays"] = age_days
+            merged.append(restored)
+            seen.add(url)
+
+    _RESULT_CACHE[cache_key] = (now, [dict(article) for article in merged[:limit]])
+    return merged[:limit]
 
 def fetch_rss(feed_url, source, limit=5, article_type=None):
     import time as _time
@@ -955,6 +983,7 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
         _add(unique, MAX_PER_SOURCE)
     if len(articles) < min(limit, 12):
         _add(unique, limit)  # 候補不足時だけ上限を緩和
+    articles = merge_result_cache((category, lang, include_x, days_limit), articles, limit, days_limit)
     if translate:
         articles = translate_titles(articles)
     return articles

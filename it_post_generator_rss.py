@@ -607,8 +607,21 @@ def get_official_x_candidates(category, limit=2):
     return candidates
 
 def is_english(text):
-    ascii_count = sum(1 for c in text if ord(c) < 128)
-    return ascii_count / max(len(text), 1) > 0.7
+    text = (text or "").strip()
+    if not text:
+        return False
+    latin_count = sum(1 for c in text if ("A" <= c <= "Z") or ("a" <= c <= "z"))
+    jp_count = sum(1 for c in text if "\u3040" <= c <= "\u30ff" or "\u4e00" <= c <= "\u9fff")
+    if jp_count >= 4 and jp_count / max(latin_count + jp_count, 1) >= 0.25:
+        return False
+    return latin_count >= 8 and latin_count > jp_count
+
+def needs_translation(article):
+    return (
+        is_english(article.get("title", ""))
+        or is_english(article.get("summary", ""))
+        or article.get("type") in ("github_release", "docs_update")
+    )
 
 TRANSLATE_PROMPT_BASE = (
     "以下のIT記事候補を、ユーザーが選びやすい日本語表示にしてください。\n"
@@ -627,7 +640,7 @@ def _translate_batch(items_in):
     prompt = TRANSLATE_PROMPT_BASE + json.dumps(items_in, ensure_ascii=False)
     body = {
         "model": "claude-haiku-4-5",
-        "max_tokens": 1600,  # 10件 × 約120トークン + 余裕
+        "max_tokens": 2200,
         "messages": [{"role": "user", "content": prompt}]
     }
     req = Request(
@@ -644,6 +657,10 @@ def _translate_batch(items_in):
         result = json.loads(res.read())
     text = result["content"][0]["text"].strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
+    if not text.startswith("["):
+        match = re.search(r"\[[\s\S]*\]", text)
+        if match:
+            text = match.group(0)
     return json.loads(text)
 
 def translate_titles(articles):
@@ -652,7 +669,7 @@ def translate_titles(articles):
     targets = [
         (i, a)
         for i, a in enumerate(articles)
-        if is_english((a.get("title", "") + " " + a.get("summary", "")).strip())
+        if needs_translation(a)
     ][:20]  # 返却候補20件分を日本語表示に変換
     if not targets:
         return articles
@@ -676,9 +693,9 @@ def translate_titles(articles):
         print("[翻訳] キャッシュを使用", flush=True)
         return articles
 
-    # 10件ずつ並列翻訳（20件返却でも選びやすい日本語表示を維持）
+    # 小さめのバッチで翻訳漏れを減らす
     from concurrent.futures import ThreadPoolExecutor as _TPE
-    BATCH_SIZE = 10
+    BATCH_SIZE = 5
     batches = [targets[i:i+BATCH_SIZE] for i in range(0, len(targets), BATCH_SIZE)]
 
     def _do_batch(batch_idx_items):
@@ -706,21 +723,53 @@ def translate_titles(articles):
         for result in ex.map(_do_batch, enumerate(batches)):
             translated_all += result
 
-    for item in translated_all:
-        orig_idx = item.get("index")
-        if not isinstance(orig_idx, int) or orig_idx < 0 or orig_idx >= len(articles):
-            continue
-        title_ja = (item.get("title_ja") or "").strip()
-        summary_ja = (item.get("summary_ja") or "").strip()
-        if title_ja:
-            articles[orig_idx]["title_en"] = articles[orig_idx]["title"]
-            articles[orig_idx]["title"] = title_ja
-        if summary_ja:
-            articles[orig_idx]["summary_en"] = articles[orig_idx].get("summary", "")
-            articles[orig_idx]["summary"] = summary_ja
-        original = next((a for idx, a in targets if idx == orig_idx), None)
-        if original:
-            _TRANSLATION_CACHE[(original.get("title", ""), original.get("summary", ""))] = (title_ja, summary_ja)
+    def _apply_translations(translated_items, target_pairs):
+        applied = set()
+        target_map = {idx: article for idx, article in target_pairs}
+        for item in translated_items:
+            orig_idx = item.get("index")
+            if not isinstance(orig_idx, int) or orig_idx < 0 or orig_idx >= len(articles):
+                continue
+            title_ja = (item.get("title_ja") or "").strip()
+            summary_ja = (item.get("summary_ja") or "").strip()
+            if title_ja:
+                articles[orig_idx]["title_en"] = articles[orig_idx]["title"]
+                articles[orig_idx]["title"] = title_ja
+            if summary_ja:
+                articles[orig_idx]["summary_en"] = articles[orig_idx].get("summary", "")
+                articles[orig_idx]["summary"] = summary_ja
+            original = target_map.get(orig_idx)
+            if original:
+                _TRANSLATION_CACHE[(original.get("title", ""), original.get("summary", ""))] = (title_ja, summary_ja)
+            applied.add(orig_idx)
+        return applied
+
+    applied = _apply_translations(translated_all, targets)
+    missing_targets = [
+        (idx, article)
+        for idx, article in targets
+        if idx not in applied and needs_translation(articles[idx])
+    ]
+    if missing_targets:
+        print(f"[翻訳] 漏れ {len(missing_targets)}件を再試行", flush=True)
+        retry_results = []
+        retry_batches = [missing_targets[i:i+3] for i in range(0, len(missing_targets), 3)]
+        with _TPE(max_workers=min(len(retry_batches), 3)) as ex:
+            for result in ex.map(_do_batch, enumerate(retry_batches)):
+                retry_results += result
+        applied |= _apply_translations(retry_results, missing_targets)
+
+    for idx, article in targets:
+        if idx not in applied and article.get("type") == "github_release":
+            repo = article.get("source", "").replace("GitHub Releases: ", "")
+            version = article.get("title", "").replace(repo, "").strip()
+            if repo and version:
+                articles[idx]["title_en"] = article.get("title", "")
+                articles[idx]["title"] = f"{repo} の {version} リリース"
+                _TRANSLATION_CACHE[(article.get("title", ""), article.get("summary", ""))] = (
+                    articles[idx]["title"],
+                    article.get("summary", ""),
+                )
 
     print(f"[翻訳] 計{len(targets)}件を日本語表示に変換完了", flush=True)
     return articles

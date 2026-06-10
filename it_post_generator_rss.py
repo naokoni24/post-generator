@@ -37,6 +37,7 @@ RSS_FETCH_TIMEOUT = 1.8
 RSS_FETCH_FAST_BUDGET = 1.2
 RSS_FETCH_MAX_BUDGET = 2.6
 RSS_FULL_FETCH_TIMEOUT = 3.5
+RSS_FULL_FETCH_FAST_BUDGET = 3.0
 RSS_FULL_FETCH_MAX_BUDGET = 7.0
 RSS_PER_FEED_LIMIT = 10
 SPECIAL_PER_FEED_LIMIT = 5
@@ -1038,6 +1039,7 @@ HTML = r"""<!DOCTYPE html>
   .divider { height: 1px; background: #e5e5e5; margin: 0 0 1.25rem; }
   .error-box { background: #fff0f0; border: 1px solid #fcc; border-radius: 8px; padding: .75rem 1rem; font-size: 13px; color: #c00; display: none; margin-bottom: 1rem; }
   .status-bar { font-size: 13px; color: #888; display: none; align-items: center; gap: 8px; margin-bottom: 1rem; }
+  .fetch-info { font-size: 12px; color: #888; margin: -2px 0 10px; }
   .spinner { width: 14px; height: 14px; border: 2px solid #ddd; border-top-color: #1a1a1a; border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .skel { background: #f0f0f0; border-radius: 4px; animation: pulse 1.4s ease-in-out infinite; height: 12px; margin-bottom: 8px; }
@@ -1152,6 +1154,7 @@ HTML = r"""<!DOCTYPE html>
 
   <div id="candidatesSection" style="display:none;margin-bottom:1.25rem">
     <div class="section-label">記事を選んでください</div>
+    <div class="fetch-info" id="candidateInfo"></div>
     <div id="candidatesList"></div>
     <button class="more-btn" id="moreBtn">もっと見る</button>
   </div>
@@ -1199,6 +1202,7 @@ let activeOpinionStyle='impression';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
 let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
+let lastFetchInfo=null;
 
 function el(id){return document.getElementById(id);}
 function getTags(){return tags.filter(t=>t.on).map(t=>t.t).join(' ');}
@@ -1242,7 +1246,8 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days){
       try{data=await r.json();}catch(e){throw new Error(`応答を読み取れませんでした (${r.status})`);}
       if(!r.ok||data.error)throw new Error(data.error||`HTTP ${r.status}`);
       if(data.articles&&data.articles.length){
-        console.log('[候補取得]', {count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days});
+        lastFetchInfo={count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days, includeX:data.include_x, usedFullFetch:data.used_full_fetch};
+        console.log('[候補取得]', lastFetchInfo);
         return data.articles;
       }
       throw new Error('記事が見つかりませんでした');
@@ -1309,6 +1314,14 @@ function escapeHtml(value){
 }
 
 function renderCands(){
+  if(lastFetchInfo){
+    const mode=lastFetchInfo.lang==='en'?'海外優先':'国内優先';
+    const period=String(lastFetchInfo.days)==='0'?'今日':`${lastFetchInfo.days}日以内`;
+    const retry=lastFetchInfo.usedFullFetch?' / 追加取得あり':'';
+    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得 / ${lastFetchInfo.category} / ${mode} / ${period}${retry}`;
+  }else{
+    el('candidateInfo').textContent='';
+  }
   const visibleCandidates=candidates.slice(0, visibleCount);
   el('candidatesList').innerHTML=visibleCandidates.map((a,i)=>{
     const sel=selectedIdx===i;
@@ -1728,6 +1741,7 @@ class Handler(BaseHTTPRequestHandler):
                         recent_days=target_days,
                         translate=False,
                         fetch_timeout=RSS_FULL_FETCH_TIMEOUT,
+                        fast_budget=RSS_FULL_FETCH_FAST_BUDGET,
                         max_budget=RSS_FULL_FETCH_MAX_BUDGET,
                     )
                 try:
@@ -1738,15 +1752,18 @@ class Handler(BaseHTTPRequestHandler):
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
                     articles = _load_articles(days)
+                used_full_fetch = False
                 if len(articles) < 20:
                     print(f"[候補取得] {len(articles)}件のため追加取得します", flush=True)
                     _RSS_FAIL_CACHE.clear()
+                    used_full_fetch = True
                     articles = _load_articles(days, full=True)
                 if not articles:
                     print("[候補取得] 初回0件、失敗キャッシュをクリアして再試行します", flush=True)
                     _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
+                    used_full_fetch = True
                     articles = _load_articles(days, full=True)
                 print(f"[候補取得] 取得件数={len(articles)}", flush=True)
                 self.send_json(200, {
@@ -1756,6 +1773,7 @@ class Handler(BaseHTTPRequestHandler):
                     "lang": lang,
                     "days": days,
                     "include_x": include_x,
+                    "used_full_fetch": used_full_fetch,
                 })
             except Exception as e:
                 import traceback

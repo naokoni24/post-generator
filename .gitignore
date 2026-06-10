@@ -15,10 +15,13 @@ pawalk/
 pet-feeling-app/
 pic/
 rag-sample/
+gourmet-search/
+stock-predictor/
 line_stamps*/
 
 # Unrelated scratch files
 firebase-debug.log
+start-gourmet.sh
 it_post_generator_rss.py
 requirements.txt
 otsukaresama_*.png

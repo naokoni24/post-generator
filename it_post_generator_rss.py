@@ -950,6 +950,8 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
     if len(articles) < limit:
         _add(fresh_pool, MAX_PER_SOURCE)  # 第2パス: 直近記事の2件目まで許可
     if len(articles) < limit:
+        _add(fresh_pool, MAX_PER_SOURCE + 1)  # 第3パス: 足りない時だけ3件目を許可
+    if len(articles) < limit:
         _add(unique, MAX_PER_SOURCE)
     if len(articles) < min(limit, 12):
         _add(unique, limit)  # 候補不足時だけ上限を緩和

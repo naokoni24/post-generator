@@ -36,6 +36,8 @@ RECENT_DAYS = 0
 RSS_FETCH_TIMEOUT = 1.8
 RSS_FETCH_FAST_BUDGET = 1.2
 RSS_FETCH_MAX_BUDGET = 2.6
+RSS_FULL_FETCH_TIMEOUT = 3.5
+RSS_FULL_FETCH_MAX_BUDGET = 7.0
 RSS_PER_FEED_LIMIT = 10
 SPECIAL_PER_FEED_LIMIT = 5
 RSS_EMPTY_RETRY_DELAY = 0.8
@@ -521,7 +523,7 @@ def merge_result_cache(cache_key, articles, limit, days_limit):
     _RESULT_CACHE[cache_key] = (now, [dict(article) for article in merged[:limit]])
     return merged[:limit]
 
-def fetch_rss(feed_url, source, limit=5, article_type=None):
+def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TIMEOUT):
     import time as _time
     failed_at = _RSS_FAIL_CACHE.get(feed_url)
     if failed_at and _time.time() - failed_at < _RSS_FAIL_CACHE_TTL:
@@ -538,7 +540,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None):
         import urllib.request
         opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
         req = Request(feed_url, headers={"User-Agent": "Mozilla/5.0"})
-        with opener.open(req, timeout=RSS_FETCH_TIMEOUT) as res:
+        with opener.open(req, timeout=timeout) as res:
             raw = res.read()
         root = ET.fromstring(raw)
         ns = {'atom': 'http://www.w3.org/2005/Atom'}
@@ -802,7 +804,17 @@ def translate_titles(articles):
     print(f"[翻訳] 計{len(targets)}件を日本語表示に変換完了", flush=True)
     return articles
 
-def get_articles(category, lang, limit=10, include_x=False, recent_days=None, translate=True):
+def get_articles(
+    category,
+    lang,
+    limit=10,
+    include_x=False,
+    recent_days=None,
+    translate=True,
+    fetch_timeout=RSS_FETCH_TIMEOUT,
+    fast_budget=RSS_FETCH_FAST_BUDGET,
+    max_budget=RSS_FETCH_MAX_BUDGET,
+):
     import time as _time
     from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 
@@ -815,11 +827,11 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
     # RSS / GitHub Releases / Docs更新 をすべて同時並列フェッチ
     def _fetch_rss(feed, article_type=None):
         lim = 3 if feed["source"].startswith("arxiv") else RSS_PER_FEED_LIMIT
-        items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type)
+        items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type, timeout=fetch_timeout)
         return "jp" if _is_jp_source(feed["source"]) else "other", items
 
     def _fetch_group(feed, article_type, per_limit):
-        items = fetch_rss(feed["url"], feed["source"], limit=per_limit, article_type=article_type)
+        items = fetch_rss(feed["url"], feed["source"], limit=per_limit, article_type=article_type, timeout=fetch_timeout)
         return "special", items
 
     all_tasks = (
@@ -863,7 +875,7 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
                 futures[executor.submit(_fetch_rss, feed)] = "rss"
         started_at = _time.monotonic()
         try:
-            completed_iter = as_completed(futures, timeout=RSS_FETCH_FAST_BUDGET)
+            completed_iter = as_completed(futures, timeout=fast_budget)
             for future in completed_iter:
                 tag, items = future.result()
                 processed.add(future)
@@ -873,7 +885,7 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
 
         pending = [future for future in futures if future not in processed and not future.done()]
         if pending and _recent_candidate_count() < limit:
-            remaining_budget = max(0.0, RSS_FETCH_MAX_BUDGET - (_time.monotonic() - started_at))
+            remaining_budget = max(0.0, max_budget - (_time.monotonic() - started_at))
             if remaining_budget > 0:
                 try:
                     for future in as_completed(pending, timeout=remaining_budget):
@@ -1694,8 +1706,19 @@ class Handler(BaseHTTPRequestHandler):
                 days = int(params.get("days", [str(RECENT_DAYS)])[0])
                 print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
                 _RSS_FAIL_CACHE.clear()
-                def _load_articles(target_days):
-                    return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=False)
+                def _load_articles(target_days, full=False):
+                    if not full:
+                        return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=False)
+                    return get_articles(
+                        category,
+                        lang,
+                        limit=20,
+                        include_x=include_x,
+                        recent_days=target_days,
+                        translate=False,
+                        fetch_timeout=RSS_FULL_FETCH_TIMEOUT,
+                        max_budget=RSS_FULL_FETCH_MAX_BUDGET,
+                    )
                 try:
                     articles = _load_articles(days)
                 except Exception as first_error:
@@ -1704,12 +1727,16 @@ class Handler(BaseHTTPRequestHandler):
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
                     articles = _load_articles(days)
+                if len(articles) < 20:
+                    print(f"[候補取得] {len(articles)}件のため追加取得します", flush=True)
+                    _RSS_FAIL_CACHE.clear()
+                    articles = _load_articles(days, full=True)
                 if not articles:
                     print("[候補取得] 初回0件、失敗キャッシュをクリアして再試行します", flush=True)
                     _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
-                    articles = _load_articles(days)
+                    articles = _load_articles(days, full=True)
                 print(f"[候補取得] 取得件数={len(articles)}", flush=True)
                 self.send_json(200, {
                     "articles": articles,

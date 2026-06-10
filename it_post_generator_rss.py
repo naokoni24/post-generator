@@ -523,6 +523,16 @@ def merge_result_cache(cache_key, articles, limit, days_limit):
     _RESULT_CACHE[cache_key] = (now, [dict(article) for article in merged[:limit]])
     return merged[:limit]
 
+def sort_articles_newest_first(articles):
+    return sorted(
+        articles,
+        key=lambda article: (
+            article.get("sortTime", 0) or 0,
+            article.get("trustScore", 0) or 0,
+        ),
+        reverse=True,
+    )
+
 def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TIMEOUT):
     import time as _time
     failed_at = _RSS_FAIL_CACHE.get(feed_url)
@@ -996,6 +1006,7 @@ def get_articles(
     if len(articles) < min(limit, 12):
         _add(unique, limit)  # 候補不足時だけ上限を緩和
     articles = merge_result_cache((category, lang, include_x, days_limit), articles, limit, days_limit)
+    articles = sort_articles_newest_first(articles)
     if translate:
         articles = translate_titles(articles)
     return articles

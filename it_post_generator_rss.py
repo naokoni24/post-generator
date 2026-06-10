@@ -905,12 +905,7 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
         a for a in unique
         if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= days_limit)
     ]
-    if len(recent) < limit:
-        recent_urls = {a.get("url", "") for a in recent}
-        backfill = [a for a in unique if a.get("url", "") not in recent_urls]
-        unique = recent + backfill
-    else:
-        unique = recent
+    unique = recent
     unique.sort(key=_article_sort_key)
     type_caps = {
         "github_release": 3,
@@ -944,19 +939,18 @@ def get_articles(category, lang, limit=10, include_x=False, recent_days=None, tr
             type_counts[article_type] = type_counts.get(article_type, 0) + 1
             source_counts[source] = source_counts.get(source, 0) + 1
 
-    fresh_days_limit = max(days_limit, 1)
     fresh_pool = [
         article for article in unique
         if article.get("type") == "official_x"
         or article.get("ageDays") is None
-        or article.get("ageDays") <= fresh_days_limit
+        or article.get("ageDays") <= days_limit
     ]
 
     _add(fresh_pool, 1)             # 第1パス: 直近記事から各ソース1件ずつ
     if len(articles) < limit:
         _add(fresh_pool, MAX_PER_SOURCE)  # 第2パス: 直近記事の2件目まで許可
     if len(articles) < limit:
-        _add(unique, MAX_PER_SOURCE)  # 第3パス: 古い記事も含めて補完
+        _add(unique, MAX_PER_SOURCE)
     if len(articles) < min(limit, 12):
         _add(unique, limit)  # 候補不足時だけ上限を緩和
     if translate:
@@ -1675,10 +1669,6 @@ class Handler(BaseHTTPRequestHandler):
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
                     articles = _load_articles(days)
-                if not articles and days == 0:
-                    print("[候補取得] 当日0件のため1日前まで広げて再試行します", flush=True)
-                    _RSS_FAIL_CACHE.clear()
-                    articles = _load_articles(1)
                 print(f"[候補取得] 取得件数={len(articles)}", flush=True)
                 self.send_json(200, {"articles": articles})
             except Exception as e:

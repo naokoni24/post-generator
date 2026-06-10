@@ -1144,7 +1144,7 @@ const OPINION_STYLES=[
   {k:'concern',    l:'⚠️ 懸念・考察', desc:'「一方でこんなリスクも」「まだ課題はあるが」など深掘り'},
 ];
 let activeOpinionStyle='impression';
-let activeCat='AI・機械学習', activeLang='jp';
+let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
 let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
 

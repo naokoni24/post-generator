@@ -1195,7 +1195,6 @@ HTML = r"""<!DOCTYPE html>
   <div id="candidatesSection" style="display:none;margin-bottom:1.25rem">
     <div class="section-label">記事を選んでください</div>
     <div class="fetch-info" id="candidateInfo"></div>
-    <input type="text" id="searchBox" placeholder="🔍 キーワードで絞り込み（タイトル・概要・ソース）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:0.6rem;border:1px solid #e5e5e5;border-radius:8px;font-size:16px">
     <div id="candidatesList"></div>
     <button class="more-btn" id="moreBtn">もっと見る</button>
   </div>
@@ -1242,7 +1241,7 @@ const OPINION_STYLES=[
 let activeOpinionStyle='impression';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
-let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT, searchQuery='';
+let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
 let lastFetchInfo=null;
 
 function el(id){return document.getElementById(id);}
@@ -1382,13 +1381,10 @@ function renderCands(){
   }else{
     el('candidateInfo').textContent='';
   }
-  const q=searchQuery.trim().toLowerCase();
-  const filtered=candidates
-    .map((a,i)=>[i,a])
-    .filter(([i,a])=>!q || `${a.title} ${a.summary} ${a.source}`.toLowerCase().includes(q));
+  const filtered=candidates.map((a,i)=>[i,a]);
   const visibleCandidates=filtered.slice(0, visibleCount);
   if(!filtered.length){
-    el('candidatesList').innerHTML=q?`<div class="fetch-info">「${escapeHtml(searchQuery)}」に一致する記事がありません</div>`:'';
+    el('candidatesList').innerHTML='';
   }else{
     el('candidatesList').innerHTML=visibleCandidates.map(([i,a])=>{
     const sel=selectedIdx===i;
@@ -1456,15 +1452,7 @@ async function translateCandidatesInBackground(){
 }
 
 el('moreBtn').onclick=()=>{
-  const q=searchQuery.trim().toLowerCase();
-  const filteredLen=candidates.filter(a=>!q||`${a.title} ${a.summary} ${a.source}`.toLowerCase().includes(q)).length;
-  visibleCount=Math.min(visibleCount+INITIAL_VISIBLE_COUNT,filteredLen);
-  renderCands();
-};
-
-el('searchBox').oninput=(e)=>{
-  searchQuery=e.target.value;
-  visibleCount=INITIAL_VISIBLE_COUNT;
+  visibleCount=Math.min(visibleCount+INITIAL_VISIBLE_COUNT,candidates.length);
   renderCands();
 };
 
@@ -1484,7 +1472,7 @@ el('generateBtn').onclick=async()=>{
   el('loadingSkels').innerHTML=Array.from({length:5}).map(()=>`<div class="skel-card"><div class="skel" style="width:60%"></div><div class="skel" style="width:95%"></div><div class="skel" style="width:80%"></div></div>`).join('');
   el('generateBtn').disabled=true;
   el('generateBtn').innerHTML='<div class="spinner"></div>取得中...';
-  selectedIdx=-1;visibleCount=INITIAL_VISIBLE_COUNT;searchQuery='';el('searchBox').value='';el('selectBtn').disabled=true;
+  selectedIdx=-1;visibleCount=INITIAL_VISIBLE_COUNT;el('selectBtn').disabled=true;
   el('opinionPanel').style.display='none';
   el('stickyBar').style.display='none';
   document.body.classList.remove('has-sticky');

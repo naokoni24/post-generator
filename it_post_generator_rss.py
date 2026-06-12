@@ -971,16 +971,22 @@ def get_articles(
     if keyword:
         kw = keyword.strip().lower()
         KEYWORD_MAX_AGE_DAYS = 30
-        matched = [
+        pool = [
             a for a in unique
-            if kw in f"{a.get('title','')} {a.get('summary','')} {a.get('source','')}".lower()
-            and (a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= KEYWORD_MAX_AGE_DAYS))
+            if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= KEYWORD_MAX_AGE_DAYS)
         ]
-        matched.sort(key=lambda a: -a.get("sortTime", 0))
-        articles = matched[:limit]
+        # 英語タイトルのまま日本語キーワードに一致しない記事も拾えるよう、
+        # 候補プールを先に翻訳してからキーワード一致を判定する
         if translate:
-            articles = translate_titles(articles)
-        return articles
+            pool = translate_titles(pool[:40]) + pool[40:]
+
+        def _match(a):
+            haystack = " ".join(str(a.get(k, "")) for k in ("title", "summary", "title_en", "summary_en", "source")).lower()
+            return kw in haystack
+
+        matched = [a for a in pool if _match(a)]
+        matched.sort(key=lambda a: -a.get("sortTime", 0))
+        return matched[:limit]
 
     recent = [
         a for a in unique

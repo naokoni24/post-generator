@@ -1143,7 +1143,7 @@ HTML = r"""<!DOCTYPE html>
   </div>
   <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得。必要な時だけ公式Xも追加</p>
 
-  <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索（任意・空欄なら通常取得）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid #e5e5e5;border-radius:8px;font-size:0.9rem">
+  <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索（任意・空欄なら通常取得）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid #e5e5e5;border-radius:8px;font-size:16px">
 
   <div class="section-label">カテゴリ</div>
   <div class="btn-group" id="catGroup"></div>
@@ -1188,7 +1188,7 @@ HTML = r"""<!DOCTYPE html>
   <div id="candidatesSection" style="display:none;margin-bottom:1.25rem">
     <div class="section-label">記事を選んでください</div>
     <div class="fetch-info" id="candidateInfo"></div>
-    <input type="text" id="searchBox" placeholder="🔍 キーワードで絞り込み（タイトル・概要・ソース）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:0.6rem;border:1px solid #e5e5e5;border-radius:8px;font-size:0.9rem">
+    <input type="text" id="searchBox" placeholder="🔍 キーワードで絞り込み（タイトル・概要・ソース）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:0.6rem;border:1px solid #e5e5e5;border-radius:8px;font-size:16px">
     <div id="candidatesList"></div>
     <button class="more-btn" id="moreBtn">もっと見る</button>
   </div>

@@ -1126,6 +1126,8 @@ HTML = r"""<!DOCTYPE html>
   </div>
   <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得。必要な時だけ公式Xも追加</p>
 
+  <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索（任意・空欄なら通常取得）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid #e5e5e5;border-radius:8px;font-size:0.9rem">
+
   <div class="section-label">カテゴリ</div>
   <div class="btn-group" id="catGroup"></div>
 
@@ -1148,7 +1150,6 @@ HTML = r"""<!DOCTYPE html>
       </select>
     </label>
   </div>
-  <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索（任意・空欄なら通常取得）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:0.6rem;border:1px solid #e5e5e5;border-radius:8px;font-size:0.9rem">
   <button class="gen-btn" id="generateBtn">📡 複数ソースから候補を取得</button>
   <div class="divider"></div>
 

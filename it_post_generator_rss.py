@@ -954,9 +954,11 @@ def get_articles(
 
     if keyword:
         kw = keyword.strip().lower()
+        KEYWORD_MAX_AGE_DAYS = 30
         matched = [
             a for a in unique
             if kw in f"{a.get('title','')} {a.get('summary','')} {a.get('source','')}".lower()
+            and (a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= KEYWORD_MAX_AGE_DAYS))
         ]
         matched.sort(key=lambda a: -a.get("sortTime", 0))
         articles = matched[:limit]

@@ -830,8 +830,8 @@ def get_articles(
     import time as _time
     from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 
-    if keyword:
-        # キーワード検索時はカテゴリを問わず全フィードを対象にする
+    if keyword and not category:
+        # キーワード検索 + カテゴリ未選択: 全カテゴリのフィードを対象にする
         seen_feed_urls = set()
         feeds = []
         for cat_feeds in RSS_FEEDS.values():
@@ -887,7 +887,7 @@ def get_articles(
                 count += 1
         return count
 
-    executor = ThreadPoolExecutor(max_workers=30 if keyword else 12)
+    executor = ThreadPoolExecutor(max_workers=30 if (keyword and not category) else 12)
     futures = {}
     processed = set()
     try:
@@ -1259,12 +1259,18 @@ function setOpinionStyle(k){activeOpinionStyle=k;renderOpinionStyles();}
 
 document.addEventListener('change',e=>{if(e.target.id==='includeOpinion')renderOpinionStyles();});
 
-function setCat(c){activeCat=c;renderCats();}
+function setCat(c){
+  if(el('keywordBox').value.trim()){
+    // 検索ワードがある時はクリックでON/OFF切替（カテゴリ未選択=全カテゴリ検索）
+    activeCat=(activeCat===c)?null:c;
+  }else{
+    activeCat=c;
+  }
+  renderCats();
+}
 
 el('keywordBox').oninput=(e)=>{
-  if(e.target.value.trim()){
-    activeCat=null;
-  }else if(activeCat===null){
+  if(!e.target.value.trim()&&activeCat===null){
     activeCat='AI・機械学習';
   }
   renderCats();
@@ -1360,7 +1366,8 @@ function renderCands(){
     const period=String(lastFetchInfo.days)==='0'?'今日':`${lastFetchInfo.days}日以内`;
     const retry=lastFetchInfo.usedFullFetch?' / 追加取得あり':'';
     const kw=lastFetchInfo.keyword?` / 検索:「${lastFetchInfo.keyword}」`:'';
-    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得 / ${lastFetchInfo.category} / ${mode} / ${period}${retry}${kw}`;
+    const catLabel=lastFetchInfo.category||'全カテゴリ';
+    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得 / ${catLabel} / ${mode} / ${period}${retry}${kw}`;
   }else{
     el('candidateInfo').textContent='';
   }
@@ -1476,7 +1483,7 @@ el('generateBtn').onclick=async()=>{
     const includeX=el('includeX').checked?'1':'0';
     const days=el('recentDays').value;
     const keyword=el('keywordBox').value.trim();
-    candidates=await fetchCandidatesWithRetry(activeCat||'AI・機械学習',activeLang,includeX,days,keyword);
+    candidates=await fetchCandidatesWithRetry(activeCat||'',activeLang,includeX,days,keyword);
     el('loadingSkels').style.display='none';
     setStatus(false);
     setFetching(false);
@@ -1783,7 +1790,7 @@ class Handler(BaseHTTPRequestHandler):
             from urllib.parse import urlparse, parse_qs
             try:
                 params = parse_qs(urlparse(self.path).query)
-                category = params.get("category", ["AI・機械学習"])[0]
+                category = params.get("category", [""])[0]
                 lang = params.get("lang", ["jp"])[0]
                 include_x = params.get("include_x", ["0"])[0] == "1"
                 days = int(params.get("days", [str(RECENT_DAYS)])[0])

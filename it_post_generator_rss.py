@@ -544,7 +544,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
     cached = _RSS_CACHE.get(feed_url)
     if cached:
         ts, cached_items = cached
-        if _time.time() - ts < _RSS_CACHE_TTL:
+        if _time.time() - ts < _RSS_CACHE_TTL and len(cached_items) >= limit:
             return cached_items[:limit]
 
     try:
@@ -838,7 +838,8 @@ def get_articles(
 
     # RSS / GitHub Releases / Docs更新 をすべて同時並列フェッチ
     def _fetch_rss(feed, article_type=None):
-        lim = 3 if feed["source"].startswith("arxiv") else RSS_PER_FEED_LIMIT
+        base_lim = 3 if feed["source"].startswith("arxiv") else RSS_PER_FEED_LIMIT
+        lim = base_lim * 3 if keyword else base_lim  # キーワード検索時は検索対象プールを広げる
         items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type, timeout=fetch_timeout)
         return "jp" if _is_jp_source(feed["source"]) else "other", items
 

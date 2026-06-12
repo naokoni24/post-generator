@@ -1245,6 +1245,7 @@ function pillStyle(active){
 
 function renderCats(){
   el('catGroup').innerHTML=CATS.map(c=>`<button onclick="setCat('${c}')" style="${pillStyle(activeCat===c)}">${c}</button>`).join('');
+  el('catGroup').style.opacity=activeCat===null?'0.4':'1';
 }
 function renderLangs(){
   el('langGroup').innerHTML=[{k:'jp',l:'🇯🇵 国内優先'},{k:'en',l:'🌐 海外優先'}].map(l=>`<button onclick="setLang('${l.k}')" style="${pillStyle(activeLang===l.k)}">${l.l}</button>`).join('');
@@ -1259,6 +1260,15 @@ function setOpinionStyle(k){activeOpinionStyle=k;renderOpinionStyles();}
 document.addEventListener('change',e=>{if(e.target.id==='includeOpinion')renderOpinionStyles();});
 
 function setCat(c){activeCat=c;renderCats();}
+
+el('keywordBox').oninput=(e)=>{
+  if(e.target.value.trim()){
+    activeCat=null;
+  }else if(activeCat===null){
+    activeCat='AI・機械学習';
+  }
+  renderCats();
+};
 function setLang(l){activeLang=l;renderLangs();}
 
 function setStatus(on,txt){el('statusText').textContent=txt||'';el('statusBar').style.display=on?'flex':'none';}
@@ -1466,7 +1476,7 @@ el('generateBtn').onclick=async()=>{
     const includeX=el('includeX').checked?'1':'0';
     const days=el('recentDays').value;
     const keyword=el('keywordBox').value.trim();
-    candidates=await fetchCandidatesWithRetry(activeCat,activeLang,includeX,days,keyword);
+    candidates=await fetchCandidatesWithRetry(activeCat||'AI・機械学習',activeLang,includeX,days,keyword);
     el('loadingSkels').style.display='none';
     setStatus(false);
     setFetching(false);

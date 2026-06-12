@@ -942,7 +942,11 @@ def get_articles(
     if include_x:
         special_items += get_official_x_candidates(category, limit=2)
 
-    all_items = (jp_items + special_items + other_items) if lang == "jp" else (special_items + other_items + jp_items)
+    if lang == "jp":
+        all_items = jp_items + special_items + other_items
+    else:
+        # 海外優先: 国内ソースは候補に含めない
+        all_items = special_items + other_items
     seen = set()
     unique = []
     for a in all_items:

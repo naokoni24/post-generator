@@ -887,7 +887,7 @@ def get_articles(
                 count += 1
         return count
 
-    executor = ThreadPoolExecutor(max_workers=12)
+    executor = ThreadPoolExecutor(max_workers=30 if keyword else 12)
     futures = {}
     processed = set()
     try:
@@ -1791,6 +1791,8 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days} keyword={keyword}", flush=True)
                 _RSS_FAIL_CACHE.clear()
                 def _load_articles(target_days, full=False):
+                    if keyword:
+                        full = True  # キーワード検索は全カテゴリ対象で件数が多いため、最初からフル予算で取得
                     if not full:
                         return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=False, keyword=keyword)
                     return get_articles(
@@ -1802,7 +1804,7 @@ class Handler(BaseHTTPRequestHandler):
                         translate=False,
                         fetch_timeout=RSS_FULL_FETCH_TIMEOUT,
                         fast_budget=RSS_FULL_FETCH_FAST_BUDGET,
-                        max_budget=RSS_FULL_FETCH_MAX_BUDGET,
+                        max_budget=RSS_FULL_FETCH_MAX_BUDGET * 2 if keyword else RSS_FULL_FETCH_MAX_BUDGET,
                         keyword=keyword,
                     )
                 try:

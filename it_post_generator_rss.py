@@ -825,6 +825,7 @@ def get_articles(
     fetch_timeout=RSS_FETCH_TIMEOUT,
     fast_budget=RSS_FETCH_FAST_BUDGET,
     max_budget=RSS_FETCH_MAX_BUDGET,
+    keyword=None,
 ):
     import time as _time
     from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
@@ -950,6 +951,19 @@ def get_articles(
         )
 
     unique.sort(key=_article_sort_key)
+
+    if keyword:
+        kw = keyword.strip().lower()
+        matched = [
+            a for a in unique
+            if kw in f"{a.get('title','')} {a.get('summary','')} {a.get('source','')}".lower()
+        ]
+        matched.sort(key=lambda a: -a.get("sortTime", 0))
+        articles = matched[:limit]
+        if translate:
+            articles = translate_titles(articles)
+        return articles
+
     recent = [
         a for a in unique
         if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= days_limit)
@@ -1134,6 +1148,7 @@ HTML = r"""<!DOCTYPE html>
       </select>
     </label>
   </div>
+  <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索（任意・空欄なら通常取得）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:0.6rem;border:1px solid #e5e5e5;border-radius:8px;font-size:0.9rem">
   <button class="gen-btn" id="generateBtn">📡 複数ソースから候補を取得</button>
   <div class="divider"></div>
 
@@ -1236,8 +1251,9 @@ function setStatus(on,txt){el('statusText').textContent=txt||'';el('statusBar').
 function showError(msg){const eb=el('errorBox');eb.textContent=msg;eb.style.display='block';setTimeout(()=>eb.style.display='none',6000);}
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 
-async function fetchCandidatesWithRetry(category, lang, includeX, days){
-  const url=`/api/rss?category=${encodeURIComponent(category)}&lang=${lang}&include_x=${includeX}&days=${days}&_=${Date.now()}`;
+async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword){
+  let url=`/api/rss?category=${encodeURIComponent(category)}&lang=${lang}&include_x=${includeX}&days=${days}&_=${Date.now()}`;
+  if(keyword)url+=`&keyword=${encodeURIComponent(keyword)}`;
   let lastError=null;
   for(let attempt=1;attempt<=3;attempt++){
     try{
@@ -1247,11 +1263,11 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days){
       try{data=await r.json();}catch(e){throw new Error(`応答を読み取れませんでした (${r.status})`);}
       if(!r.ok||data.error)throw new Error(data.error||`HTTP ${r.status}`);
       if(data.articles&&data.articles.length){
-        lastFetchInfo={count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days, includeX:data.include_x, usedFullFetch:data.used_full_fetch};
+        lastFetchInfo={count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
         console.log('[候補取得]', lastFetchInfo);
         return data.articles;
       }
-      throw new Error('記事が見つかりませんでした');
+      throw new Error(keyword?'該当する記事が見つかりませんでした':'記事が見つかりませんでした');
     }catch(e){
       lastError=e;
       if(attempt<3)await sleep(700*attempt);
@@ -1319,7 +1335,8 @@ function renderCands(){
     const mode=lastFetchInfo.lang==='en'?'海外優先':'国内優先';
     const period=String(lastFetchInfo.days)==='0'?'今日':`${lastFetchInfo.days}日以内`;
     const retry=lastFetchInfo.usedFullFetch?' / 追加取得あり':'';
-    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得 / ${lastFetchInfo.category} / ${mode} / ${period}${retry}`;
+    const kw=lastFetchInfo.keyword?` / 検索:「${lastFetchInfo.keyword}」`:'';
+    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得 / ${lastFetchInfo.category} / ${mode} / ${period}${retry}${kw}`;
   }else{
     el('candidateInfo').textContent='';
   }
@@ -1434,7 +1451,8 @@ el('generateBtn').onclick=async()=>{
   try{
     const includeX=el('includeX').checked?'1':'0';
     const days=el('recentDays').value;
-    candidates=await fetchCandidatesWithRetry(activeCat,activeLang,includeX,days);
+    const keyword=el('keywordBox').value.trim();
+    candidates=await fetchCandidatesWithRetry(activeCat,activeLang,includeX,days,keyword);
     el('loadingSkels').style.display='none';
     setStatus(false);
     setFetching(false);
@@ -1745,11 +1763,12 @@ class Handler(BaseHTTPRequestHandler):
                 lang = params.get("lang", ["jp"])[0]
                 include_x = params.get("include_x", ["0"])[0] == "1"
                 days = int(params.get("days", [str(RECENT_DAYS)])[0])
-                print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days}", flush=True)
+                keyword = params.get("keyword", [""])[0].strip() or None
+                print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days} keyword={keyword}", flush=True)
                 _RSS_FAIL_CACHE.clear()
                 def _load_articles(target_days, full=False):
                     if not full:
-                        return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=False)
+                        return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=False, keyword=keyword)
                     return get_articles(
                         category,
                         lang,
@@ -1760,6 +1779,7 @@ class Handler(BaseHTTPRequestHandler):
                         fetch_timeout=RSS_FULL_FETCH_TIMEOUT,
                         fast_budget=RSS_FULL_FETCH_FAST_BUDGET,
                         max_budget=RSS_FULL_FETCH_MAX_BUDGET,
+                        keyword=keyword,
                     )
                 try:
                     articles = _load_articles(days)
@@ -1791,6 +1811,7 @@ class Handler(BaseHTTPRequestHandler):
                     "days": days,
                     "include_x": include_x,
                     "used_full_fetch": used_full_fetch,
+                    "keyword": keyword,
                 })
             except Exception as e:
                 import traceback

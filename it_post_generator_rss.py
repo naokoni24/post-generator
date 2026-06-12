@@ -1148,7 +1148,7 @@ HTML = r"""<!DOCTYPE html>
   <div class="section-label">カテゴリ</div>
   <div class="btn-group" id="catGroup"></div>
 
-  <div class="section-label">言語</div>
+  <div class="section-label">取得先</div>
   <div class="btn-group" id="langGroup"></div>
 
   <div class="source-options">

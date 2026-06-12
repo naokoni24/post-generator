@@ -943,9 +943,10 @@ def get_articles(
         special_items += get_official_x_candidates(category, limit=2)
 
     if lang == "jp":
-        all_items = jp_items + special_items + other_items
+        # 国内: 海外ソースは候補に含めない
+        all_items = jp_items + special_items
     else:
-        # 海外優先: 国内ソースは候補に含めない
+        # 海外: 国内ソースは候補に含めない
         all_items = special_items + other_items
     seen = set()
     unique = []
@@ -1252,7 +1253,7 @@ function renderCats(){
   el('catGroup').style.opacity=activeCat===null?'0.4':'1';
 }
 function renderLangs(){
-  el('langGroup').innerHTML=[{k:'jp',l:'🇯🇵 国内優先'},{k:'en',l:'🌐 海外優先'}].map(l=>`<button onclick="setLang('${l.k}')" style="${pillStyle(activeLang===l.k)}">${l.l}</button>`).join('');
+  el('langGroup').innerHTML=[{k:'jp',l:'🇯🇵 国内'},{k:'en',l:'🌐 海外'}].map(l=>`<button onclick="setLang('${l.k}')" style="${pillStyle(activeLang===l.k)}">${l.l}</button>`).join('');
 }
 function renderOpinionStyles(){
   const includeOpinion=el('includeOpinion')&&el('includeOpinion').checked;
@@ -1366,7 +1367,7 @@ function escapeHtml(value){
 
 function renderCands(){
   if(lastFetchInfo){
-    const mode=lastFetchInfo.lang==='en'?'海外優先':'国内優先';
+    const mode=lastFetchInfo.lang==='en'?'海外':'国内';
     const period=String(lastFetchInfo.days)==='0'?'今日':`${lastFetchInfo.days}日以内`;
     const retry=lastFetchInfo.usedFullFetch?' / 追加取得あり':'';
     const kw=lastFetchInfo.keyword?` / 検索:「${lastFetchInfo.keyword}」`:'';
@@ -1625,7 +1626,7 @@ URL: ${shareUrl}
       }catch(e){ console.warn('自動短縮失敗',e); }
     }
     el('resultHeader').innerHTML=`
-      <span class="badge lang">${activeLang==='en'?'🌐 海外優先':'🇯🇵 国内優先'}</span>`;
+      <span class="badge lang">${activeLang==='en'?'🌐 海外':'🇯🇵 国内'}</span>`;
     el('articleMeta').textContent=`${art.source}　${art.published}　${art.typeLabel||'RSSニュース'}・信頼度${art.trustScore||70}`;
     el('articleTitle').innerHTML=art.url?`<a href="${escapeHtml(art.url)}" target="_blank">${escapeHtml(art.title)}</a>`:escapeHtml(art.title);
     el('tweetBox').innerText=tweet;

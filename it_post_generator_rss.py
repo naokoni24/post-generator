@@ -830,7 +830,17 @@ def get_articles(
     import time as _time
     from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 
-    feeds = RSS_FEEDS.get(category, RSS_FEEDS["AI・機械学習"])
+    if keyword:
+        # キーワード検索時はカテゴリを問わず全フィードを対象にする
+        seen_feed_urls = set()
+        feeds = []
+        for cat_feeds in RSS_FEEDS.values():
+            for feed in cat_feeds:
+                if feed["url"] not in seen_feed_urls:
+                    seen_feed_urls.add(feed["url"])
+                    feeds.append(feed)
+    else:
+        feeds = RSS_FEEDS.get(category, RSS_FEEDS["AI・機械学習"])
     jp_sources = set(JP_PRIORITY_SOURCES)
 
     def _is_jp_source(source):

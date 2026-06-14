@@ -135,9 +135,11 @@ RSS_FEEDS = {
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         # 海外
         {"url": "https://aws.amazon.com/blogs/aws/feed/", "source": "AWS Blog"},
-        {"url": "https://www.zdnet.com/topic/cloud/rss.xml", "source": "ZDNet Cloud"},
         {"url": "https://thenewstack.io/feed/", "source": "The New Stack"},
-        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
+        {"url": "https://kubernetes.io/feed.xml", "source": "Kubernetes Blog"},
+        {"url": "https://www.docker.com/feed/", "source": "Docker Blog"},
+        {"url": "https://www.cncf.io/feed/", "source": "CNCF Blog"},
+        {"url": "https://www.hashicorp.com/blog/feed.xml", "source": "HashiCorp Blog"},
     ],
     "セキュリティ": [
         # 国内
@@ -370,7 +372,10 @@ OFFICIAL_BLOG_SOURCES = {
     "Google Research Blog",
     "Meta Engineering Blog",
     "Microsoft AI Blog",
-    "Azure Blog",
+    "Kubernetes Blog",
+    "Docker Blog",
+    "CNCF Blog",
+    "HashiCorp Blog",
 }
 
 JP_PRIORITY_SOURCES = [
@@ -392,6 +397,36 @@ JP_PRIORITY_SOURCES = [
     "クラウド Watch",
     "はてブ",
 ]
+
+CATEGORY_RELEVANCE_KEYWORDS = {
+    "クラウド・AWS": [
+        "aws", "amazon web services", "ec2", "s3", "lambda", "rds", "lightsail",
+        "cloud", "cloudflare", "google cloud", "gcp", "azure", "kubernetes", "k8s",
+        "container", "docker", "serverless", "terraform", "infrastructure", "cdn",
+        "networking", "vpc", "observability", "logs", "incident", "クラウド", "aws", "アマゾン",
+        "サーバーレス", "コンテナ", "インフラ", "ネットワーク", "データセンター",
+        "運用", "監視", "障害", "セキュリティ基盤",
+    ],
+}
+
+CATEGORY_RELEVANCE_FILTER_SOURCES = {
+    # 広めのフィードはカテゴリ外の記事を多く含むため、カテゴリ検索時だけ本文メタで絞る
+    "クラウド・AWS": {
+        "Hacker News",
+        "はてブ IT",
+        "Publickey",
+        "ITmedia Enterprise",
+        "The New Stack",
+    },
+}
+
+def is_category_relevant(article, category):
+    keywords = CATEGORY_RELEVANCE_KEYWORDS.get(category)
+    noisy_sources = CATEGORY_RELEVANCE_FILTER_SOURCES.get(category, set())
+    if not keywords or article.get("source", "") not in noisy_sources:
+        return True
+    haystack = " ".join(str(article.get(k, "")) for k in ("title", "summary")).lower()
+    return any(keyword.lower() in haystack for keyword in keywords)
 
 def strip_tags(text):
     return re.sub(r'<[^>]+>', '', html.unescape(text or '')).strip()
@@ -549,7 +584,7 @@ def sort_articles_newest_first(articles):
         reverse=True,
     )
 
-def diversify_articles_by_source(articles, limit, preferred_cap=2):
+def diversify_articles_by_source(articles, limit, preferred_cap=2, hard_cap=None):
     """同一ソースの占有を抑えつつ、必要件数に届くまで段階的に上限を緩める。"""
     ordered = sort_articles_newest_first(articles)
     if not ordered:
@@ -578,13 +613,15 @@ def diversify_articles_by_source(articles, limit, preferred_cap=2):
         source = article.get("source", "")
         max_available_per_source[source] = max_available_per_source.get(source, 0) + 1
     max_cap = max(max_available_per_source.values(), default=preferred_cap)
+    if hard_cap is not None:
+        max_cap = min(max_cap, hard_cap)
 
     for cap in range(preferred_cap, max_cap + 1):
         _add_with_cap(cap)
         if len(selected) >= limit:
             break
 
-    if len(selected) < limit:
+    if len(selected) < limit and hard_cap is None:
         _add_with_cap(limit)
 
     return sort_articles_newest_first(selected[:limit])
@@ -1054,6 +1091,12 @@ def get_articles(
             seen.add(a["url"])
             a["ageDays"] = article_age_days(a)
             unique.append(a)
+    if category and not keyword:
+        before_filter = len(unique)
+        unique = [a for a in unique if is_category_relevant(a, category)]
+        removed = before_filter - len(unique)
+        if removed:
+            print(f"[カテゴリ絞り込み] {category}: 関連度の低い候補を{removed}件除外", flush=True)
     def _article_sort_key(a):
         return (
             0 if (a.get("type") in ("github_release", "docs_update", "official_x")) else (
@@ -1158,7 +1201,12 @@ def get_articles(
     if len(articles) < limit:
         _add(unique, limit)  # 候補不足時は同一ソース上限を緩和して件数を優先
     articles = merge_result_cache((category, lang, include_x, days_limit), articles, limit, days_limit)
-    articles = diversify_articles_by_source(articles, limit, preferred_cap=MAX_PER_SOURCE)
+    articles = diversify_articles_by_source(
+        articles,
+        limit,
+        preferred_cap=MAX_PER_SOURCE,
+        hard_cap=3 if category and not keyword else None,
+    )
     if translate:
         articles = translate_titles(articles)
     return articles

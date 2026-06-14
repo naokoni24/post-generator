@@ -727,14 +727,14 @@ def _translate_batch(items_in):
             text = match.group(0)
     return json.loads(text)
 
-def translate_titles(articles):
+def translate_titles(articles, max_items=20):
     if not API_KEY:
         return articles
     targets = [
         (i, a)
         for i, a in enumerate(articles)
         if needs_translation(a)
-    ][:20]  # 返却候補20件分を日本語表示に変換
+    ][:max_items]  # 通常は返却候補20件分、検索時はプール分を日本語表示に変換
     if not targets:
         return articles
 
@@ -783,7 +783,7 @@ def translate_titles(articles):
             return []
 
     translated_all = []
-    with _TPE(max_workers=len(batches)) as ex:
+    with _TPE(max_workers=min(len(batches), 6)) as ex:
         for result in ex.map(_do_batch, enumerate(batches)):
             translated_all += result
 
@@ -874,7 +874,7 @@ def get_articles(
         base_lim = 3 if feed["source"].startswith("arxiv") else RSS_PER_FEED_LIMIT
         if keyword:
             # キーワード検索時は検索対象プールを広げる。カテゴリ指定時はフィード数が少ない分さらに広げる
-            lim = base_lim * (8 if category else 6)
+            lim = base_lim * (8 if category else 12)
         elif fetch_timeout >= RSS_FULL_FETCH_TIMEOUT:
             # カテゴリ補完時は過去数日分まで候補プールを広げる
             lim = base_lim * 4
@@ -884,14 +884,39 @@ def get_articles(
         return "jp" if _is_jp_source(feed["source"]) else "other", items
 
     def _fetch_group(feed, article_type, per_limit):
-        lim = per_limit * 4 if (keyword or fetch_timeout >= RSS_FULL_FETCH_TIMEOUT) else per_limit
+        if keyword and not category:
+            lim = per_limit * 8
+        elif keyword or fetch_timeout >= RSS_FULL_FETCH_TIMEOUT:
+            lim = per_limit * 4
+        else:
+            lim = per_limit
         items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type, timeout=fetch_timeout)
+        if keyword and not category:
+            return "jp" if _is_jp_source(feed["source"]) else "other", items
         return "special", items
+
+    if keyword and not category:
+        seen_special_urls = set()
+        github_feeds = []
+        docs_feeds = []
+        for cat_feeds in GITHUB_RELEASE_FEEDS.values():
+            for feed in cat_feeds:
+                if feed["url"] not in seen_special_urls:
+                    seen_special_urls.add(feed["url"])
+                    github_feeds.append(feed)
+        for cat_feeds in DOCS_UPDATE_FEEDS.values():
+            for feed in cat_feeds:
+                if feed["url"] not in seen_special_urls:
+                    seen_special_urls.add(feed["url"])
+                    docs_feeds.append(feed)
+    else:
+        github_feeds = GITHUB_RELEASE_FEEDS.get(category, [])
+        docs_feeds = DOCS_UPDATE_FEEDS.get(category, [])
 
     all_tasks = (
         [(feed, None) for feed in feeds]
-        + [(feed, "github_release") for feed in GITHUB_RELEASE_FEEDS.get(category, [])]
-        + [(feed, "docs_update")   for feed in DOCS_UPDATE_FEEDS.get(category, [])]
+        + [(feed, "github_release") for feed in github_feeds]
+        + [(feed, "docs_update")   for feed in docs_feeds]
     )
 
     jp_items, other_items, special_items = [], [], []
@@ -973,10 +998,7 @@ def get_articles(
     if include_x:
         special_items += get_official_x_candidates(category, limit=2)
 
-    if keyword and not category:
-        # キーワードのみ検索は取得先モードに縛らず、全カテゴリ・全ソースから探す
-        all_items = jp_items + special_items + other_items
-    elif lang == "jp":
+    if lang == "jp":
         # 国内: 海外ソースは候補に含めない
         all_items = jp_items + special_items
     else:
@@ -1012,8 +1034,8 @@ def get_articles(
         # 英語タイトルのまま日本語キーワードに一致しない記事も拾えるよう、
         # 候補プールを先に翻訳してからキーワード一致を判定する
         if translate:
-            translate_pool_size = 80 if not category else 60
-            pool = translate_titles(pool[:translate_pool_size]) + pool[translate_pool_size:]
+            translate_pool_size = 160 if not category else 80
+            pool = translate_titles(pool[:translate_pool_size], max_items=translate_pool_size) + pool[translate_pool_size:]
 
         def _match(a):
             haystack = " ".join(str(a.get(k, "")) for k in ("title", "summary", "title_en", "summary_en", "source")).lower()

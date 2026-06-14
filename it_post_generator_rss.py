@@ -48,6 +48,7 @@ RSS_FULL_FETCH_TIMEOUT = 3.5
 RSS_FULL_FETCH_FAST_BUDGET = 3.0
 RSS_FULL_FETCH_MAX_BUDGET = 7.0
 RSS_PER_FEED_LIMIT = 10
+TODAY_FULL_FETCH_MULTIPLIER = 10
 SPECIAL_PER_FEED_LIMIT = 5
 RSS_EMPTY_RETRY_DELAY = 0.8
 RESULT_CACHE_TTL = 1800
@@ -877,7 +878,8 @@ def get_articles(
             lim = base_lim * (8 if category else 12)
         elif fetch_timeout >= RSS_FULL_FETCH_TIMEOUT:
             # カテゴリ補完時は過去数日分まで候補プールを広げる
-            lim = base_lim * 4
+            multiplier = TODAY_FULL_FETCH_MULTIPLIER if days_limit == 0 else 4
+            lim = base_lim * multiplier
         else:
             lim = base_lim
         items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type, timeout=fetch_timeout)
@@ -887,7 +889,8 @@ def get_articles(
         if keyword and not category:
             lim = per_limit * 8
         elif keyword or fetch_timeout >= RSS_FULL_FETCH_TIMEOUT:
-            lim = per_limit * 4
+            multiplier = TODAY_FULL_FETCH_MULTIPLIER if (not keyword and days_limit == 0) else 4
+            lim = per_limit * multiplier
         else:
             lim = per_limit
         items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type, timeout=fetch_timeout)
@@ -1022,6 +1025,16 @@ def get_articles(
             -a.get("trustScore", 0),
         )
 
+    def _article_pick_key(a):
+        age_days = a.get("ageDays")
+        return (
+            age_days is None,
+            age_days if age_days is not None else 999,
+            -a.get("sortTime", 0),
+            0 if (a.get("type") in ("github_release", "docs_update", "official_x")) else 1,
+            -a.get("trustScore", 0),
+        )
+
     unique.sort(key=_article_sort_key)
 
     if keyword:
@@ -1053,7 +1066,7 @@ def get_articles(
         if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= days_limit)
     ]
     unique = recent
-    unique.sort(key=_article_sort_key)
+    unique.sort(key=_article_pick_key)
     type_caps = {
         "github_release": 3,
         "docs_update": 3,

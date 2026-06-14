@@ -145,14 +145,12 @@ RSS_FEEDS = {
         # 国内
         {"url": "https://rss.itmedia.co.jp/rss/2.0/news_security.xml", "source": "ITmedia セキュリティ"},
         {"url": "https://internet.watch.impress.co.jp/data/rss/1.0/iw/feed.rdf", "source": "INTERNET Watch"},
-        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         # 海外
         {"url": "https://feeds.feedburner.com/TheHackersNews", "source": "The Hacker News"},
         {"url": "https://krebsonsecurity.com/feed/", "source": "Krebs on Security"},
         {"url": "https://www.darkreading.com/rss.xml", "source": "Dark Reading"},
-        {"url": "https://www.zdnet.com/topic/security/rss.xml", "source": "ZDNet Security"},
         {"url": "https://isc.sans.edu/rssfeed_full.xml", "source": "SANS Internet Storm Center"},
-        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
+        {"url": "https://www.helpnetsecurity.com/feed/", "source": "Help Net Security"},
     ],
     "開発": [
         # 国内
@@ -173,14 +171,13 @@ RSS_FEEDS = {
         # 国内
         {"url": "https://thebridge.jp/feed", "source": "BRIDGE"},
         {"url": "https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml", "source": "ITmedia NEWS"},
-        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         # 海外
         {"url": "https://techcrunch.com/category/startups/feed/", "source": "TechCrunch Startups"},
         {"url": "https://venturebeat.com/feed/", "source": "VentureBeat"},
-        {"url": "https://www.theverge.com/rss/index.xml", "source": "The Verge"},
-        {"url": "https://feeds.businessinsider.com/custom/all", "source": "Business Insider"},
         {"url": "https://techcrunch.com/feed/", "source": "TechCrunch"},
-        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
+        {"url": "https://sifted.eu/feed", "source": "Sifted"},
+        {"url": "https://www.eu-startups.com/feed/", "source": "EU-Startups"},
+        {"url": "https://tech.eu/feed/", "source": "Tech.eu"},
     ],
     "便利ツール・Tips": [
         # 国内
@@ -192,14 +189,12 @@ RSS_FEEDS = {
         # 海外
         {"url": "https://www.producthunt.com/feed", "source": "Product Hunt"},
         {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
-        {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
     ],
     "ガジェット・ハードウェア": [
         # 国内
         {"url": "https://pc.watch.impress.co.jp/data/rss/1.0/pcw/feed.rdf", "source": "PC Watch"},
         {"url": "https://k-tai.watch.impress.co.jp/data/rss/1.0/ktw/feed.rdf", "source": "ケータイ Watch"},
         {"url": "https://www.gizmodo.jp/index.xml", "source": "Gizmodo Japan"},
-        {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         # 海外
         {"url": "https://www.engadget.com/rss.xml", "source": "Engadget"},
         {"url": "https://www.theverge.com/rss/index.xml", "source": "The Verge"},
@@ -213,12 +208,13 @@ RSS_FEEDS = {
         {"url": "https://rss.itmedia.co.jp/rss/2.0/enterprise.xml", "source": "ITmedia Enterprise"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
         {"url": "https://xtech.nikkei.com/rss/index.rdf", "source": "日経XTECH"},
-        {"url": "https://www.forbes.com/innovation/feed2", "source": "Forbes Tech"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
         # 海外
         {"url": "https://techcrunch.com/category/enterprise/feed/", "source": "TechCrunch Enterprise"},
-        {"url": "https://feeds.feedburner.com/fastcompany/headlines", "source": "Fast Company"},
-        {"url": "https://www.zdnet.com/topic/digital-transformation/rss.xml", "source": "ZDNet DX"},
+        {"url": "https://www.cio.com/feed/", "source": "CIO"},
+        {"url": "https://www.ciodive.com/feeds/news/", "source": "CIO Dive"},
+        {"url": "https://www.informationweek.com/rss.xml", "source": "InformationWeek"},
+        {"url": "https://venturebeat.com/category/enterprise/feed", "source": "VentureBeat Enterprise"},
     ],
 }
 
@@ -399,6 +395,13 @@ JP_PRIORITY_SOURCES = [
 ]
 
 CATEGORY_RELEVANCE_KEYWORDS = {
+    "AI・機械学習": [
+        "ai", "artificial intelligence", "machine learning", "deep learning", "llm",
+        "chatgpt", "claude", "gemini", "openai", "anthropic", "deepmind", "model",
+        "agent", "agents", "neural", "生成ai", "人工知能", "機械学習", "深層学習",
+        "大規模言語モデル", "言語モデル", "チャットgpt", "チャットボット", "モデル",
+        "エージェント", "推論", "学習", "ai",
+    ],
     "クラウド・AWS": [
         "aws", "amazon web services", "ec2", "s3", "lambda", "rds", "lightsail",
         "cloud", "cloudflare", "google cloud", "gcp", "azure", "kubernetes", "k8s",
@@ -407,16 +410,117 @@ CATEGORY_RELEVANCE_KEYWORDS = {
         "サーバーレス", "コンテナ", "インフラ", "ネットワーク", "データセンター",
         "運用", "監視", "障害", "セキュリティ基盤",
     ],
+    "セキュリティ": [
+        "security", "cyber", "vulnerability", "cve", "malware", "ransomware",
+        "phishing", "breach", "attack", "threat", "exploit", "zero-day", "0-day",
+        "patch", "authentication", "encryption", "privacy", "セキュリティ", "脆弱性",
+        "サイバー", "マルウェア", "ランサムウェア", "フィッシング", "攻撃", "不正",
+        "漏えい", "漏洩", "認証", "暗号", "パッチ", "警告", "注意喚起", "リスク",
+    ],
+    "開発": [
+        "developer", "development", "programming", "code", "coding", "software",
+        "javascript", "typescript", "python", "node", "react", "next.js", "css",
+        "html", "api", "github", "git", "cli", "framework", "database", "debug",
+        "test", "testing", "webassembly", "wasm", "開発", "プログラミング", "コード",
+        "実装", "設計", "エンジニア", "api", "フレームワーク", "ライブラリ", "デバッグ",
+        "テスト", "web", "javascript", "typescript", "python", "github", "git",
+    ],
+    "スタートアップ": [
+        "startup", "startups", "founder", "funding", "ipo", "venture", "vc",
+        "y combinator", "yc", "stripe", "supabase", "saas", "acquisition",
+        "launch", "product", "growth", "revenue", "スタートアップ", "起業", "創業",
+        "資金調達", "上場", "ipo", "投資", "買収", "vc", "ベンチャー", "新興企業",
+        "saas", "プロダクト", "成長", "売上",
+    ],
+    "便利ツール・Tips": [
+        "tool", "tools", "app", "apps", "productivity", "workflow", "automation",
+        "extension", "chrome", "browser", "workspace", "notion", "obsidian", "raycast",
+        "vscode", "visual studio code", "linear", "github", "ai", "mac", "iphone",
+        "android", "便利", "ツール", "アプリ", "効率化", "自動化", "拡張機能",
+        "ブラウザ", "ワークフロー", "ショートカット", "デスク", "仕事術", "作業",
+        "ノート", "chrome", "github", "vscode", "mac", "iphone", "android",
+    ],
+    "ガジェット・ハードウェア": [
+        "gadget", "hardware", "device", "smartphone", "phone", "iphone", "android",
+        "pc", "laptop", "tablet", "gpu", "cpu", "chip", "semiconductor", "camera",
+        "console", "xbox", "playstation", "switch", "kindle", "router", "wi-fi",
+        "wifi", "display", "monitor", "battery", "wearable", "ガジェット", "ハードウェア",
+        "スマホ", "スマートフォン", "iphone", "android", "pc", "パソコン", "gpu", "cpu",
+        "半導体", "カメラ", "ルーター", "wi-fi", "wifi", "ディスプレイ", "モニター",
+        "バッテリー", "ゲーム機", "タブレット", "ウェアラブル", "端末",
+    ],
+    "ビジネス・DX": [
+        "dx", "digital transformation", "enterprise", "business", "saas", "workflow",
+        "automation", "ai", "data", "analytics", "cloud", "security", "productivity",
+        "management", "sales", "customer", "crm", "erp", "it", "tech", "startup",
+        "企業", "ビジネス", "dx", "デジタル", "変革", "業務", "効率化", "自動化",
+        "ai", "データ", "クラウド", "セキュリティ", "経営", "営業", "顧客", "it",
+        "システム", "saas", "生産性", "事例", "導入", "市場", "調査",
+    ],
 }
 
 CATEGORY_RELEVANCE_FILTER_SOURCES = {
     # 広めのフィードはカテゴリ外の記事を多く含むため、カテゴリ検索時だけ本文メタで絞る
+    "AI・機械学習": {
+        "Publickey",
+        "はてブ IT",
+        "CNET Japan",
+        "Ars Technica",
+        "MIT Technology Review",
+    },
     "クラウド・AWS": {
         "Hacker News",
         "はてブ IT",
         "Publickey",
         "ITmedia Enterprise",
         "The New Stack",
+    },
+    "セキュリティ": {
+        "Hacker News",
+        "ZDNet Security",
+        "INTERNET Watch",
+        "はてブ IT",
+        "ITmedia セキュリティ",
+    },
+    "開発": {
+        "Hacker News",
+        "はてブ IT",
+        "Ars Technica",
+    },
+    "スタートアップ": {
+        "Hacker News",
+        "The Verge",
+        "Business Insider",
+        "TechCrunch",
+        "VentureBeat",
+        "ITmedia NEWS",
+        "はてブ IT",
+    },
+    "便利ツール・Tips": {
+        "Hacker News",
+        "Lifehacker",
+        "Lifehacker Japan",
+        "INTERNET Watch",
+        "PC Watch",
+        "はてブ IT",
+    },
+    "ガジェット・ハードウェア": {
+        "The Verge",
+        "Gizmodo",
+        "Engadget",
+        "Gizmodo Japan",
+        "ケータイ Watch",
+        "はてブ IT",
+    },
+    "ビジネス・DX": {
+        "Forbes Tech",
+        "ZDNet DX",
+        "Fast Company",
+        "ITmedia ビジネス",
+        "ITmedia Enterprise",
+        "Publickey",
+        "日経XTECH",
+        "はてブ IT",
     },
 }
 
@@ -461,7 +565,7 @@ def article_age_days(article):
         return None
     article_date = datetime.fromtimestamp(sort_time, timezone.utc).astimezone(LOCAL_TZ).date()
     today = datetime.now(LOCAL_TZ).date()
-    return max(0, (today - article_date).days)
+    return (today - article_date).days
 
 def format_local_date(parsed_date, fallback=""):
     if not parsed_date:
@@ -564,7 +668,7 @@ def merge_result_cache(cache_key, articles, limit, days_limit):
             if not url or url in seen:
                 continue
             age_days = article_age_days(article)
-            if article.get("type") != "official_x" and (age_days is None or age_days > days_limit):
+            if article.get("type") != "official_x" and (age_days is None or age_days < 0 or age_days > days_limit):
                 continue
             restored = dict(article)
             restored["ageDays"] = age_days
@@ -1019,7 +1123,7 @@ def get_articles(
                 continue
             seen.add(url)
             age_days = article_age_days(article)
-            if article.get("type") == "official_x" or (age_days is not None and age_days <= days_limit):
+            if article.get("type") == "official_x" or (age_days is not None and 0 <= age_days <= days_limit):
                 count += 1
         return count
 
@@ -1125,7 +1229,7 @@ def get_articles(
         KEYWORD_MAX_AGE_DAYS = 90 if not category else 30
         pool = [
             a for a in unique
-            if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= KEYWORD_MAX_AGE_DAYS)
+            if a.get("type") == "official_x" or (a.get("ageDays") is not None and 0 <= a["ageDays"] <= KEYWORD_MAX_AGE_DAYS)
         ]
         # 英語タイトルのまま日本語キーワードに一致しない記事も拾えるよう、
         # 候補プールを先に翻訳してからキーワード一致を判定する
@@ -1146,7 +1250,7 @@ def get_articles(
 
     recent = [
         a for a in unique
-        if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= days_limit)
+        if a.get("type") == "official_x" or (a.get("ageDays") is not None and 0 <= a["ageDays"] <= days_limit)
     ]
     unique = recent
     unique.sort(key=_article_pick_key)
@@ -1186,7 +1290,7 @@ def get_articles(
         article for article in unique
         if article.get("type") == "official_x"
         or article.get("ageDays") is None
-        or article.get("ageDays") <= days_limit
+        or (0 <= article.get("ageDays") <= days_limit)
     ]
 
     _add(fresh_pool, 1)             # 第1パス: 直近記事から各ソース1件ずつ

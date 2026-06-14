@@ -13,8 +13,9 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.request import urlopen, Request
-from urllib.error import URLError
+from urllib.request import urlopen, Request, HTTPRedirectHandler
+from urllib.error import URLError, HTTPError
+from urllib.parse import urljoin
 import html
 import re
 import hmac
@@ -29,6 +30,13 @@ except ImportError:
         def tzname(self, dt): return "JST"
         def dst(self, dt): return timedelta(0)
     LOCAL_TZ = _JST()
+
+class FeedRedirectHandler(HTTPRedirectHandler):
+    def http_error_307(self, req, fp, code, msg, headers):
+        return self.http_error_302(req, fp, code, msg, headers)
+
+    def http_error_308(self, req, fp, code, msg, headers):
+        return self.http_error_302(req, fp, code, msg, headers)
 
 API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 PORT       = int(os.environ.get("PORT", 8765))
@@ -460,7 +468,7 @@ def fetch_article_body(url, char_limit=1500):
     """記事URLから本文テキストを取得して返す"""
     try:
         import urllib.request
-        opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+        opener = urllib.request.build_opener(FeedRedirectHandler())
         req = Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -497,6 +505,12 @@ _RSS_CACHE_TTL = 300  # 5分キャッシュ
 _RSS_FAIL_CACHE = {}  # {feed_url: timestamp}
 _RSS_FAIL_CACHE_TTL = 600  # 10分間、失敗したフィードをスキップ
 _RESULT_CACHE = {}  # {(category, lang, include_x, days): (timestamp, articles)}
+
+def shutdown_executor(executor):
+    try:
+        executor.shutdown(wait=False, cancel_futures=True)
+    except TypeError:
+        executor.shutdown(wait=False)
 
 def merge_result_cache(cache_key, articles, limit, days_limit):
     """同じ検索条件の前回結果で、一時的な取得漏れを補完する。"""
@@ -549,7 +563,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
 
     try:
         import urllib.request
-        opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+        opener = urllib.request.build_opener(FeedRedirectHandler())
         req = Request(feed_url, headers={"User-Agent": "Mozilla/5.0"})
         with opener.open(req, timeout=timeout) as res:
             raw = res.read()
@@ -610,6 +624,15 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
         _RSS_CACHE[feed_url] = (_time.time(), items)
         _RSS_FAIL_CACHE.pop(feed_url, None)
         return items[:limit]
+    except HTTPError as e:
+        if e.code in (301, 302, 303, 307, 308):
+            location = e.headers.get("Location")
+            if location:
+                redirected_url = urljoin(feed_url, location)
+                return fetch_rss(redirected_url, source, limit=limit, article_type=article_type, timeout=timeout)
+        _RSS_FAIL_CACHE[feed_url] = _time.time()
+        print(f"[RSS] {source} 取得失敗: {e}", flush=True)
+        return []
     except Exception as e:
         _RSS_FAIL_CACHE[feed_url] = _time.time()
         print(f"[RSS] {source} 取得失敗: {e}", flush=True)
@@ -852,13 +875,17 @@ def get_articles(
         if keyword:
             # キーワード検索時は検索対象プールを広げる。カテゴリ指定時はフィード数が少ない分さらに広げる
             lim = base_lim * (8 if category else 3)
+        elif fetch_timeout >= RSS_FULL_FETCH_TIMEOUT:
+            # カテゴリ補完時は過去数日分まで候補プールを広げる
+            lim = base_lim * 4
         else:
             lim = base_lim
         items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type, timeout=fetch_timeout)
         return "jp" if _is_jp_source(feed["source"]) else "other", items
 
     def _fetch_group(feed, article_type, per_limit):
-        items = fetch_rss(feed["url"], feed["source"], limit=per_limit, article_type=article_type, timeout=fetch_timeout)
+        lim = per_limit * 4 if (keyword or fetch_timeout >= RSS_FULL_FETCH_TIMEOUT) else per_limit
+        items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type, timeout=fetch_timeout)
         return "special", items
 
     all_tasks = (
@@ -930,7 +957,7 @@ def get_articles(
                 continue
             future.cancel()
     finally:
-        executor.shutdown(wait=False, cancel_futures=True)
+        shutdown_executor(executor)
 
     # 予算内に完了したが、as_completedのタイムアウト直後にdoneになったものを拾う
     for future in futures:
@@ -1046,8 +1073,8 @@ def get_articles(
         _add(fresh_pool, MAX_PER_SOURCE + 2)  # 第4パス: 期間内候補で20件を優先
     if len(articles) < limit:
         _add(unique, MAX_PER_SOURCE)
-    if len(articles) < min(limit, 12):
-        _add(unique, limit)  # 候補不足時だけ上限を緩和
+    if len(articles) < limit:
+        _add(unique, limit)  # 候補不足時は同一ソース上限を緩和して件数を優先
     articles = merge_result_cache((category, lang, include_x, days_limit), articles, limit, days_limit)
     articles = sort_articles_newest_first(articles)
     if translate:
@@ -1307,7 +1334,7 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword)
       try{data=await r.json();}catch(e){throw new Error(`応答を読み取れませんでした (${r.status})`);}
       if(!r.ok||data.error)throw new Error(data.error||`HTTP ${r.status}`);
       if(data.articles&&data.articles.length){
-        lastFetchInfo={count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
+        lastFetchInfo={count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days, expandedDays:data.expanded_days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
         console.log('[候補取得]', lastFetchInfo);
         return data.articles;
       }
@@ -1378,10 +1405,11 @@ function renderCands(){
   if(lastFetchInfo){
     const mode=lastFetchInfo.lang==='en'?'海外':'国内';
     const period=String(lastFetchInfo.days)==='0'?'今日':`${lastFetchInfo.days}日以内`;
+    const expanded=lastFetchInfo.expandedDays&&String(lastFetchInfo.expandedDays)!==String(lastFetchInfo.days)?` / ${lastFetchInfo.expandedDays}日以内で補完`:'';
     const retry=lastFetchInfo.usedFullFetch?' / 追加取得あり':'';
     const kw=lastFetchInfo.keyword?` / 検索:「${lastFetchInfo.keyword}」`:'';
     const catLabel=lastFetchInfo.category||'全カテゴリ';
-    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得 / ${catLabel} / ${mode} / ${period}${retry}${kw}`;
+    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得 / ${catLabel} / ${mode} / ${period}${expanded}${retry}${kw}`;
   }else{
     el('candidateInfo').textContent='';
   }
@@ -1804,14 +1832,14 @@ class Handler(BaseHTTPRequestHandler):
                     if keyword:
                         full = True  # キーワード検索は全カテゴリ対象で件数が多いため、最初からフル予算で取得
                     if not full:
-                        return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=False, keyword=keyword)
+                        return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=bool(keyword), keyword=keyword)
                     return get_articles(
                         category,
                         lang,
                         limit=20,
                         include_x=include_x,
                         recent_days=target_days,
-                        translate=False,
+                        translate=bool(keyword),
                         fetch_timeout=RSS_FULL_FETCH_TIMEOUT,
                         fast_budget=RSS_FULL_FETCH_FAST_BUDGET,
                         max_budget=RSS_FULL_FETCH_MAX_BUDGET * 2 if keyword else RSS_FULL_FETCH_MAX_BUDGET,
@@ -1826,11 +1854,24 @@ class Handler(BaseHTTPRequestHandler):
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
                     articles = _load_articles(days)
                 used_full_fetch = False
+                expanded_days = days
                 if len(articles) < 20:
                     print(f"[候補取得] {len(articles)}件のため追加取得します", flush=True)
                     _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
+                if not keyword and category and len(articles) < 20 and days < 3:
+                    expanded_days = 3
+                    print(f"[候補取得] {len(articles)}件のため3日以内で補完します", flush=True)
+                    _RSS_FAIL_CACHE.clear()
+                    used_full_fetch = True
+                    articles = _load_articles(expanded_days, full=True)
+                if not keyword and category and len(articles) < 20 and expanded_days < 7:
+                    expanded_days = 7
+                    print(f"[候補取得] {len(articles)}件のため7日以内で補完します", flush=True)
+                    _RSS_FAIL_CACHE.clear()
+                    used_full_fetch = True
+                    articles = _load_articles(expanded_days, full=True)
                 if not articles:
                     print("[候補取得] 初回0件、失敗キャッシュをクリアして再試行します", flush=True)
                     _RSS_FAIL_CACHE.clear()
@@ -1845,6 +1886,7 @@ class Handler(BaseHTTPRequestHandler):
                     "category": category,
                     "lang": lang,
                     "days": days,
+                    "expanded_days": expanded_days,
                     "include_x": include_x,
                     "used_full_fetch": used_full_fetch,
                     "keyword": keyword,

@@ -1009,7 +1009,8 @@ def get_articles(
         # 英語タイトルのまま日本語キーワードに一致しない記事も拾えるよう、
         # 候補プールを先に翻訳してからキーワード一致を判定する
         if translate:
-            pool = translate_titles(pool[:40]) + pool[40:]
+            translate_pool_size = 80 if not category else 60
+            pool = translate_titles(pool[:translate_pool_size]) + pool[translate_pool_size:]
 
         def _match(a):
             haystack = " ".join(str(a.get(k, "")) for k in ("title", "summary", "title_en", "summary_en", "source")).lower()
@@ -1017,7 +1018,10 @@ def get_articles(
 
         matched = [a for a in pool if _match(a)]
         matched.sort(key=lambda a: -a.get("sortTime", 0))
-        return matched[:limit]
+        matched = matched[:limit]
+        if translate:
+            matched = translate_titles(matched)
+        return matched
 
     recent = [
         a for a in unique

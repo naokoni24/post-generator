@@ -874,7 +874,7 @@ def get_articles(
         base_lim = 3 if feed["source"].startswith("arxiv") else RSS_PER_FEED_LIMIT
         if keyword:
             # キーワード検索時は検索対象プールを広げる。カテゴリ指定時はフィード数が少ない分さらに広げる
-            lim = base_lim * (8 if category else 3)
+            lim = base_lim * (8 if category else 6)
         elif fetch_timeout >= RSS_FULL_FETCH_TIMEOUT:
             # カテゴリ補完時は過去数日分まで候補プールを広げる
             lim = base_lim * 4
@@ -973,7 +973,10 @@ def get_articles(
     if include_x:
         special_items += get_official_x_candidates(category, limit=2)
 
-    if lang == "jp":
+    if keyword and not category:
+        # キーワードのみ検索は取得先モードに縛らず、全カテゴリ・全ソースから探す
+        all_items = jp_items + special_items + other_items
+    elif lang == "jp":
         # 国内: 海外ソースは候補に含めない
         all_items = jp_items + special_items
     else:
@@ -1001,7 +1004,7 @@ def get_articles(
 
     if keyword:
         kw = keyword.strip().lower()
-        KEYWORD_MAX_AGE_DAYS = 30
+        KEYWORD_MAX_AGE_DAYS = 90 if not category else 30
         pool = [
             a for a in unique
             if a.get("type") == "official_x" or (a.get("ageDays") is not None and a["ageDays"] <= KEYWORD_MAX_AGE_DAYS)

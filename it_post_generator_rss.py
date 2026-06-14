@@ -549,6 +549,46 @@ def sort_articles_newest_first(articles):
         reverse=True,
     )
 
+def diversify_articles_by_source(articles, limit, preferred_cap=2):
+    """同一ソースの占有を抑えつつ、必要件数に届くまで段階的に上限を緩める。"""
+    ordered = sort_articles_newest_first(articles)
+    if not ordered:
+        return []
+
+    selected = []
+    selected_urls = set()
+    source_counts = {}
+
+    def _add_with_cap(source_cap):
+        for article in ordered:
+            if len(selected) >= limit:
+                break
+            url = article.get("url", "")
+            if not url or url in selected_urls:
+                continue
+            source = article.get("source", "")
+            if source_counts.get(source, 0) >= source_cap:
+                continue
+            selected.append(article)
+            selected_urls.add(url)
+            source_counts[source] = source_counts.get(source, 0) + 1
+
+    max_available_per_source = {}
+    for article in ordered:
+        source = article.get("source", "")
+        max_available_per_source[source] = max_available_per_source.get(source, 0) + 1
+    max_cap = max(max_available_per_source.values(), default=preferred_cap)
+
+    for cap in range(preferred_cap, max_cap + 1):
+        _add_with_cap(cap)
+        if len(selected) >= limit:
+            break
+
+    if len(selected) < limit:
+        _add_with_cap(limit)
+
+    return sort_articles_newest_first(selected[:limit])
+
 def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TIMEOUT):
     import time as _time
     failed_at = _RSS_FAIL_CACHE.get(feed_url)
@@ -1118,7 +1158,7 @@ def get_articles(
     if len(articles) < limit:
         _add(unique, limit)  # 候補不足時は同一ソース上限を緩和して件数を優先
     articles = merge_result_cache((category, lang, include_x, days_limit), articles, limit, days_limit)
-    articles = sort_articles_newest_first(articles)
+    articles = diversify_articles_by_source(articles, limit, preferred_cap=MAX_PER_SOURCE)
     if translate:
         articles = translate_titles(articles)
     return articles

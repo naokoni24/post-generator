@@ -2191,6 +2191,7 @@ class Handler(BaseHTTPRequestHandler):
                     articles = _load_articles(days)
                 used_full_fetch = False
                 expanded_days = days
+                auto_expand_max_days = 3 if lang == "en" else 7
                 if len(articles) < 20:
                     print(f"[候補取得] {len(articles)}件のため追加取得します", flush=True)
                     _RSS_FAIL_CACHE.clear()
@@ -2202,9 +2203,9 @@ class Handler(BaseHTTPRequestHandler):
                     _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(expanded_days, full=True)
-                if not keyword and category and len(articles) < 20 and expanded_days < 7:
-                    expanded_days = 7
-                    print(f"[候補取得] {len(articles)}件のため7日以内で補完します", flush=True)
+                if not keyword and category and len(articles) < 20 and expanded_days < auto_expand_max_days:
+                    expanded_days = auto_expand_max_days
+                    print(f"[候補取得] {len(articles)}件のため{auto_expand_max_days}日以内で補完します", flush=True)
                     _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(expanded_days, full=True)

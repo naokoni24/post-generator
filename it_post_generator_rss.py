@@ -761,6 +761,24 @@ def diversify_articles_by_source(articles, limit, preferred_cap=2, hard_cap=None
 
     return sort_articles_newest_first(selected[:limit])
 
+def prioritize_same_day_articles(articles, limit, preferred_cap=2, hard_cap=None):
+    """当日記事をできるだけ残し、不足分だけ過去記事で補完する。"""
+    today = [
+        article for article in articles
+        if article.get("type") == "official_x" or article.get("ageDays") == 0
+    ]
+    older = [
+        article for article in articles
+        if article.get("type") != "official_x" and article.get("ageDays") != 0
+    ]
+    today = sort_articles_newest_first(today)
+    if len(today) >= limit:
+        return today[:limit]
+
+    remaining = limit - len(today)
+    older = diversify_articles_by_source(older, remaining, preferred_cap=preferred_cap, hard_cap=hard_cap)
+    return sort_articles_newest_first(today + older)[:limit]
+
 def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TIMEOUT):
     import time as _time
     failed_at = _RSS_FAIL_CACHE.get(feed_url)
@@ -1336,24 +1354,43 @@ def get_articles(
         or (0 <= article.get("ageDays") <= days_limit)
     ]
 
-    _add(fresh_pool, 1)             # 第1パス: 直近記事から各ソース1件ずつ
+    age_buckets = {}
+    for article in fresh_pool:
+        age = article.get("ageDays")
+        age_key = age if age is not None else 999
+        age_buckets.setdefault(age_key, []).append(article)
+
+    # まず日付ごとのかたまりで選ぶ。当日記事があるのに、別ソースの古い記事で枠が埋まるのを防ぐ。
+    for age_key in sorted(age_buckets):
+        bucket = age_buckets[age_key]
+        _add(bucket, 1)
+        if len(articles) < limit:
+            _add(bucket, MAX_PER_SOURCE)
+        if len(articles) < limit:
+            _add(bucket, MAX_PER_SOURCE + 1)
+        if len(articles) < limit:
+            _add(bucket, MAX_PER_SOURCE + 2)
+        if len(articles) >= limit:
+            break
+
     if len(articles) < limit:
-        _add(fresh_pool, MAX_PER_SOURCE)  # 第2パス: 直近記事の2件目まで許可
+        _add(fresh_pool, MAX_PER_SOURCE)
     if len(articles) < limit:
-        _add(fresh_pool, MAX_PER_SOURCE + 1)  # 第3パス: 足りない時だけ3件目を許可
-    if len(articles) < limit:
-        _add(fresh_pool, MAX_PER_SOURCE + 2)  # 第4パス: 期間内候補で20件を優先
-    if len(articles) < limit:
-        _add(unique, MAX_PER_SOURCE)
-    if len(articles) < limit:
-        _add(unique, limit)  # 候補不足時は同一ソース上限を緩和して件数を優先
+        _add(fresh_pool, limit)  # 候補不足時は同一ソース上限を緩和して件数を優先
     articles = merge_result_cache((category, lang, include_x, days_limit), articles, limit, days_limit)
-    articles = diversify_articles_by_source(
-        articles,
-        limit,
-        preferred_cap=MAX_PER_SOURCE,
-        hard_cap=3 if category and not keyword else None,
-    )
+    if category and not keyword:
+        articles = prioritize_same_day_articles(
+            articles,
+            limit,
+            preferred_cap=MAX_PER_SOURCE,
+            hard_cap=3,
+        )
+    else:
+        articles = diversify_articles_by_source(
+            articles,
+            limit,
+            preferred_cap=MAX_PER_SOURCE,
+        )
     if translate:
         articles = translate_titles(articles)
     return articles

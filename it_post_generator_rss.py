@@ -12,7 +12,7 @@ import webbrowser
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.request import urlopen, Request, HTTPRedirectHandler
 from urllib.error import URLError, HTTPError
 from urllib.parse import urljoin
@@ -645,6 +645,37 @@ _RSS_CACHE_TTL = 300  # 5分キャッシュ
 _RSS_FAIL_CACHE = {}  # {feed_url: timestamp}
 _RSS_FAIL_CACHE_TTL = 600  # 10分間、失敗したフィードをスキップ
 _RESULT_CACHE = {}  # {(category, lang, include_x, days): (timestamp, articles)}
+_CANCEL_EVENTS = {}
+_CANCEL_LOCK = threading.Lock()
+
+class FetchCancelled(Exception):
+    pass
+
+def create_cancel_event(request_id):
+    if not request_id:
+        return None
+    event = threading.Event()
+    with _CANCEL_LOCK:
+        _CANCEL_EVENTS[request_id] = event
+    return event
+
+def cancel_request(request_id):
+    with _CANCEL_LOCK:
+        event = _CANCEL_EVENTS.get(request_id)
+    if not event:
+        return False
+    event.set()
+    return True
+
+def clear_cancel_event(request_id):
+    if not request_id:
+        return
+    with _CANCEL_LOCK:
+        _CANCEL_EVENTS.pop(request_id, None)
+
+def ensure_not_cancelled(cancel_event):
+    if cancel_event and cancel_event.is_set():
+        raise FetchCancelled("取得をキャンセルしました")
 
 def shutdown_executor(executor):
     try:
@@ -1031,10 +1062,12 @@ def get_articles(
     fast_budget=RSS_FETCH_FAST_BUDGET,
     max_budget=RSS_FETCH_MAX_BUDGET,
     keyword=None,
+    cancel_event=None,
 ):
     import time as _time
     from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 
+    ensure_not_cancelled(cancel_event)
     if keyword and not category:
         # キーワード検索 + カテゴリ未選択: 全カテゴリのフィードを対象にする
         seen_feed_urls = set()
@@ -1132,6 +1165,7 @@ def get_articles(
     processed = set()
     try:
         for feed, atype in all_tasks:
+            ensure_not_cancelled(cancel_event)
             if atype in ("github_release", "docs_update"):
                 futures[executor.submit(_fetch_group, feed, atype, SPECIAL_PER_FEED_LIMIT)] = atype
             else:
@@ -1140,18 +1174,21 @@ def get_articles(
         try:
             completed_iter = as_completed(futures, timeout=fast_budget)
             for future in completed_iter:
+                ensure_not_cancelled(cancel_event)
                 tag, items = future.result()
                 processed.add(future)
                 _store_items(tag, items)
         except TimeoutError:
             pass
 
+        ensure_not_cancelled(cancel_event)
         pending = [future for future in futures if future not in processed and not future.done()]
         if pending and _recent_candidate_count() < limit:
             remaining_budget = max(0.0, max_budget - (_time.monotonic() - started_at))
             if remaining_budget > 0:
                 try:
                     for future in as_completed(pending, timeout=remaining_budget):
+                        ensure_not_cancelled(cancel_event)
                         tag, items = future.result()
                         processed.add(future)
                         _store_items(tag, items)
@@ -1166,10 +1203,15 @@ def get_articles(
                 continue
             future.cancel()
     finally:
+        if cancel_event and cancel_event.is_set():
+            for future in futures:
+                future.cancel()
         shutdown_executor(executor)
 
+    ensure_not_cancelled(cancel_event)
     # 予算内に完了したが、as_completedのタイムアウト直後にdoneになったものを拾う
     for future in futures:
+        ensure_not_cancelled(cancel_event)
         if future in processed:
             continue
         if future.done() and not future.cancelled():
@@ -1180,6 +1222,7 @@ def get_articles(
             _store_items(tag, items)
 
     if include_x:
+        ensure_not_cancelled(cancel_event)
         special_items += get_official_x_candidates(category, limit=2)
 
     if lang == "jp":
@@ -1342,6 +1385,8 @@ HTML = r"""<!DOCTYPE html>
   .divider { height: 1px; background: #e5e5e5; margin: 0 0 1.25rem; }
   .error-box { background: #fff0f0; border: 1px solid #fcc; border-radius: 8px; padding: .75rem 1rem; font-size: 13px; color: #c00; display: none; margin-bottom: 1rem; }
   .status-bar { font-size: 13px; color: #888; display: none; align-items: center; gap: 8px; margin-bottom: 1rem; }
+  .cancel-fetch-btn { margin-left: auto; font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid #ef4444; color: #b91c1c; background: #fff5f5; cursor: pointer; display: none; }
+  .cancel-fetch-btn:hover { background: #fee2e2; }
   .fetch-info { font-size: 12px; color: #888; margin: -2px 0 10px; }
   .spinner { width: 14px; height: 14px; border: 2px solid #ddd; border-top-color: #1a1a1a; border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -1443,7 +1488,7 @@ HTML = r"""<!DOCTYPE html>
   <div class="divider"></div>
 
   <div class="error-box" id="errorBox"></div>
-  <div class="status-bar" id="statusBar"><div class="spinner"></div><span id="statusText"></span></div>
+  <div class="status-bar" id="statusBar"><div class="spinner"></div><span id="statusText"></span><button class="cancel-fetch-btn" id="cancelFetchBtn">キャンセル</button></div>
   <div id="loadingSkels" style="display:none"></div>
 
   <div id="opinionPanel" style="display:none;background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:1rem;margin:0 0 12px">
@@ -1508,6 +1553,9 @@ let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
 let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
 let lastFetchInfo=null;
+let currentFetchRequestId=null;
+let currentFetchController=null;
+let fetchCancelled=false;
 
 function el(id){return document.getElementById(id);}
 function getTags(){return tags.filter(t=>t.on).map(t=>t.t).join(' ');}
@@ -1553,19 +1601,45 @@ el('keywordBox').oninput=(e)=>{
 function setLang(l){activeLang=l;renderLangs();}
 
 function setStatus(on,txt){el('statusText').textContent=txt||'';el('statusBar').style.display=on?'flex':'none';}
+function setFetchCancelVisible(on){el('cancelFetchBtn').style.display=on?'inline-flex':'none';}
 function showError(msg){const eb=el('errorBox');eb.textContent=msg;eb.style.display='block';setTimeout(()=>eb.style.display='none',6000);}
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 
-async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword){
-  let url=`/api/rss?category=${encodeURIComponent(category)}&lang=${lang}&include_x=${includeX}&days=${days}&_=${Date.now()}`;
+function newRequestId(){
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function requestFetchCancel(){
+  fetchCancelled=true;
+  const requestId=currentFetchRequestId;
+  if(currentFetchController)currentFetchController.abort();
+  if(requestId){
+    try{
+      await fetch(`/api/cancel?request_id=${encodeURIComponent(requestId)}&_=${Date.now()}`,{cache:'no-store'});
+    }catch(e){
+      console.warn('キャンセル通知失敗', e);
+    }
+  }
+}
+
+el('cancelFetchBtn').onclick=()=>{
+  if(!currentFetchRequestId)return;
+  setStatus(true,'候補取得をキャンセル中...');
+  requestFetchCancel();
+};
+
+async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword, requestId, controller){
+  let url=`/api/rss?category=${encodeURIComponent(category)}&lang=${lang}&include_x=${includeX}&days=${days}&request_id=${encodeURIComponent(requestId)}&_=${Date.now()}`;
   if(keyword)url+=`&keyword=${encodeURIComponent(keyword)}`;
   let lastError=null;
   for(let attempt=1;attempt<=3;attempt++){
     try{
+      if(fetchCancelled)throw new Error('取得をキャンセルしました');
       if(attempt>1)setStatus(true,`候補取得を再試行中...（${attempt}/3）`);
-      const r=await fetch(url,{cache:'no-store'});
+      const r=await fetch(url,{cache:'no-store',signal:controller.signal});
       let data=null;
       try{data=await r.json();}catch(e){throw new Error(`応答を読み取れませんでした (${r.status})`);}
+      if(data.cancelled)throw new Error('取得をキャンセルしました');
       if(!r.ok||data.error)throw new Error(data.error||`HTTP ${r.status}`);
       if(data.articles&&data.articles.length){
         lastFetchInfo={count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days, expandedDays:data.expanded_days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
@@ -1574,6 +1648,7 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword)
       }
       throw new Error(keyword?'該当する記事が見つかりませんでした':'記事が見つかりませんでした');
     }catch(e){
+      if(e.name==='AbortError'||fetchCancelled)throw new Error('取得をキャンセルしました');
       lastError=e;
       if(attempt<3)await sleep(700*attempt);
     }
@@ -1738,22 +1813,29 @@ el('generateBtn').onclick=async()=>{
   el('loadingSkels').innerHTML=Array.from({length:5}).map(()=>`<div class="skel-card"><div class="skel" style="width:60%"></div><div class="skel" style="width:95%"></div><div class="skel" style="width:80%"></div></div>`).join('');
   el('generateBtn').disabled=true;
   el('generateBtn').innerHTML='<div class="spinner"></div>取得中...';
+  fetchCancelled=false;
+  currentFetchRequestId=newRequestId();
+  currentFetchController=new AbortController();
   selectedIdx=-1;visibleCount=INITIAL_VISIBLE_COUNT;el('selectBtn').disabled=true;
   el('opinionPanel').style.display='none';
   el('stickyBar').style.display='none';
   document.body.classList.remove('has-sticky');
   setFetching(true);
   setStatus(true,'複数ソースから候補を取得中...');
+  setFetchCancelVisible(true);
   try{
     const includeX=el('includeX').checked?'1':'0';
     const days=el('recentDays').value;
     const keyword=el('keywordBox').value.trim();
-    candidates=await fetchCandidatesWithRetry(activeCat||'',activeLang,includeX,days,keyword);
+    candidates=await fetchCandidatesWithRetry(activeCat||'',activeLang,includeX,days,keyword,currentFetchRequestId,currentFetchController);
     el('loadingSkels').style.display='none';
     setStatus(false);
+    setFetchCancelVisible(false);
     setFetching(false);
     el('generateBtn').disabled=false;
     el('generateBtn').innerHTML='📡 複数ソースから候補を取得';
+    currentFetchRequestId=null;
+    currentFetchController=null;
     el('candidatesSection').style.display='block';
     el('opinionPanel').style.display='block';
     renderOpinionStyles();
@@ -1762,10 +1844,19 @@ el('generateBtn').onclick=async()=>{
   }catch(e){
     el('loadingSkels').style.display='none';
     setStatus(false);
+    setFetchCancelVisible(false);
     setFetching(false);
     el('generateBtn').disabled=false;
     el('generateBtn').innerHTML='📡 複数ソースから候補を取得';
-    showError('取得に失敗: '+e.message);
+    currentFetchRequestId=null;
+    currentFetchController=null;
+    if(e.message==='取得をキャンセルしました'){
+      candidates=[];
+      el('candidateInfo').textContent='';
+      showError('候補取得をキャンセルしました');
+    }else{
+      showError('取得に失敗: '+e.message);
+    }
   }
 };
 
@@ -2041,6 +2132,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/status":
             self.send_json(200, {"has_key": bool(API_KEY)})
+        elif self.path.startswith("/api/cancel"):
+            from urllib.parse import urlparse, parse_qs
+            params = parse_qs(urlparse(self.path).query)
+            request_id = params.get("request_id", [""])[0]
+            cancelled = cancel_request(request_id)
+            self.send_json(200, {"cancelled": cancelled})
         elif self.path.startswith("/api/fetch_article"):
             from urllib.parse import urlparse, parse_qs, unquote
             params = parse_qs(urlparse(self.path).query)
@@ -2060,13 +2157,16 @@ class Handler(BaseHTTPRequestHandler):
                 include_x = params.get("include_x", ["0"])[0] == "1"
                 days = int(params.get("days", [str(RECENT_DAYS)])[0])
                 keyword = params.get("keyword", [""])[0].strip() or None
-                print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days} keyword={keyword}", flush=True)
+                request_id = params.get("request_id", [""])[0]
+                cancel_event = create_cancel_event(request_id)
+                print(f"[候補取得] category={category} lang={lang} include_x={include_x} days={days} keyword={keyword} request_id={request_id}", flush=True)
                 _RSS_FAIL_CACHE.clear()
                 def _load_articles(target_days, full=False):
+                    ensure_not_cancelled(cancel_event)
                     if keyword:
                         full = True  # キーワード検索は全カテゴリ対象で件数が多いため、最初からフル予算で取得
                     if not full:
-                        return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=bool(keyword), keyword=keyword)
+                        return get_articles(category, lang, limit=20, include_x=include_x, recent_days=target_days, translate=bool(keyword), keyword=keyword, cancel_event=cancel_event)
                     return get_articles(
                         category,
                         lang,
@@ -2078,6 +2178,7 @@ class Handler(BaseHTTPRequestHandler):
                         fast_budget=RSS_FULL_FETCH_FAST_BUDGET,
                         max_budget=RSS_FULL_FETCH_MAX_BUDGET * 2 if keyword else RSS_FULL_FETCH_MAX_BUDGET,
                         keyword=keyword,
+                        cancel_event=cancel_event,
                     )
                 try:
                     articles = _load_articles(days)
@@ -2086,6 +2187,7 @@ class Handler(BaseHTTPRequestHandler):
                     _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
+                    ensure_not_cancelled(cancel_event)
                     articles = _load_articles(days)
                 used_full_fetch = False
                 expanded_days = days
@@ -2111,6 +2213,7 @@ class Handler(BaseHTTPRequestHandler):
                     _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
+                    ensure_not_cancelled(cancel_event)
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
                 print(f"[候補取得] 取得件数={len(articles)}", flush=True)
@@ -2125,10 +2228,16 @@ class Handler(BaseHTTPRequestHandler):
                     "used_full_fetch": used_full_fetch,
                     "keyword": keyword,
                 })
+                clear_cancel_event(request_id)
+            except FetchCancelled as e:
+                print(f"[候補取得] キャンセル: {e}", flush=True)
+                clear_cancel_event(locals().get("request_id", ""))
+                self.send_json(499, {"error": "取得をキャンセルしました", "cancelled": True})
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 print(f"[ERROR /api/rss] {e}", flush=True)
+                clear_cancel_event(locals().get("request_id", ""))
                 self.send_json(500, {"error": f"記事取得中にエラーが発生しました: {str(e)}"})
         else:
             body = HTML.encode()
@@ -2210,7 +2319,7 @@ def main():
         print("⚠️  ANTHROPIC_API_KEY が設定されていません")
         print("   export ANTHROPIC_API_KEY=sk-ant-... を実行してから再起動してください\n")
 
-    server = HTTPServer(("0.0.0.0", PORT), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"✅ サーバー起動: {url}")
     print(f"   モデル: claude-haiku-4-5（複数ソース版・低コスト）")

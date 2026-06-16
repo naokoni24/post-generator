@@ -1,7 +1,7 @@
 # IT記事投稿ジェネレーター仕様
 
-更新日: 2026-06-15  
-リポジトリ: `https://github.com/naokoni24/post-generator.git`  
+更新日: 2026-06-16  
+リポジトリ: `https://github.com/naokoni24/post-generator`  
 ブランチ: `master`  
 対象ファイル: `it_post_generator_rss.py`
 
@@ -15,7 +15,7 @@
 - 必要に応じてリポジトリ内の仕様書も更新
 - `post-generator.git` の `master` ブランチへpush
 
-push先は必ず `https://github.com/naokoni24/post-generator.git` です。  
+push先は必ず `https://github.com/naokoni24/post-generator` です。  
 公式HP用の `tail_tech_hp.git` にはpushしません。
 
 ## 概要

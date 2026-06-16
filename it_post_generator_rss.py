@@ -126,9 +126,6 @@ RSS_FEEDS = {
         # arxiv（各2件に絞る → per_feed_limitで制御）
         {"url": "https://rss.arxiv.org/rss/cs.AI", "source": "arxiv AI"},
         {"url": "https://rss.arxiv.org/rss/cs.LG", "source": "arxiv ML"},
-        # 高頻度AIニュース
-        {"url": "https://the-decoder.com/feed/", "source": "The Decoder"},
-        {"url": "https://artificialintelligence-news.com/feed/", "source": "AI News"},
     ],
     "クラウド・AWS": [
         # 国内
@@ -275,8 +272,6 @@ GITHUB_RELEASE_FEEDS = {
 
 DOCS_UPDATE_FEEDS = {
     "AI・機械学習": [
-        {"url": "https://openai.com/news/rss.xml", "source": "OpenAI News / Docs"},
-        {"url": "https://developers.googleblog.com/feeds/posts/default", "source": "Google Developers Blog"},
     ],
     "クラウド・AWS": [
         {"url": "https://aws.amazon.com/about-aws/whats-new/recent/feed/", "source": "AWS What's New"},
@@ -480,7 +475,6 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "CNET Japan",
         "Ars Technica",
         "MIT Technology Review",
-        "AI News",
     },
     "クラウド・AWS": {
         "Hacker News",

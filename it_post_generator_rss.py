@@ -126,6 +126,9 @@ RSS_FEEDS = {
         # arxiv（各2件に絞る → per_feed_limitで制御）
         {"url": "https://rss.arxiv.org/rss/cs.AI", "source": "arxiv AI"},
         {"url": "https://rss.arxiv.org/rss/cs.LG", "source": "arxiv ML"},
+        # 高頻度AIニュース
+        {"url": "https://the-decoder.com/feed/", "source": "The Decoder"},
+        {"url": "https://artificialintelligence-news.com/feed/", "source": "AI News"},
     ],
     "クラウド・AWS": [
         # 国内
@@ -140,6 +143,10 @@ RSS_FEEDS = {
         {"url": "https://www.docker.com/feed/", "source": "Docker Blog"},
         {"url": "https://www.cncf.io/feed/", "source": "CNCF Blog"},
         {"url": "https://www.hashicorp.com/blog/feed.xml", "source": "HashiCorp Blog"},
+        # 高頻度クラウド・DevOpsニュース
+        {"url": "https://www.infoq.com/feed/", "source": "InfoQ"},
+        {"url": "https://devops.com/feed/", "source": "DevOps.com"},
+        {"url": "https://sdtimes.com/feed/", "source": "SD Times"},
     ],
     "セキュリティ": [
         # 国内
@@ -151,6 +158,8 @@ RSS_FEEDS = {
         {"url": "https://www.darkreading.com/rss.xml", "source": "Dark Reading"},
         {"url": "https://isc.sans.edu/rssfeed_full.xml", "source": "SANS Internet Storm Center"},
         {"url": "https://www.helpnetsecurity.com/feed/", "source": "Help Net Security"},
+        {"url": "https://www.bleepingcomputer.com/feed/", "source": "BleepingComputer"},
+        {"url": "https://securityaffairs.com/feed", "source": "Security Affairs"},
     ],
     "開発": [
         # 国内
@@ -189,6 +198,8 @@ RSS_FEEDS = {
         # 海外
         {"url": "https://www.producthunt.com/feed", "source": "Product Hunt"},
         {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
+        {"url": "https://www.howtogeek.com/feed/", "source": "How-To Geek"},
+        {"url": "https://www.makeuseof.com/feed/", "source": "MakeUseOf"},
     ],
     "ガジェット・ハードウェア": [
         # 国内
@@ -215,6 +226,8 @@ RSS_FEEDS = {
         {"url": "https://www.ciodive.com/feeds/news/", "source": "CIO Dive"},
         {"url": "https://www.informationweek.com/rss.xml", "source": "InformationWeek"},
         {"url": "https://venturebeat.com/category/enterprise/feed", "source": "VentureBeat Enterprise"},
+        {"url": "https://www.zdnet.com/news/rss.xml", "source": "ZDNet"},
+        {"url": "https://www.techrepublic.com/rss/", "source": "TechRepublic"},
     ],
 }
 
@@ -467,6 +480,7 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "CNET Japan",
         "Ars Technica",
         "MIT Technology Review",
+        "AI News",
     },
     "クラウド・AWS": {
         "Hacker News",
@@ -474,6 +488,8 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "Publickey",
         "ITmedia Enterprise",
         "The New Stack",
+        "InfoQ",
+        "SD Times",
     },
     "セキュリティ": {
         "Hacker News",
@@ -503,6 +519,8 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "INTERNET Watch",
         "PC Watch",
         "はてブ IT",
+        "How-To Geek",
+        "MakeUseOf",
     },
     "ガジェット・ハードウェア": {
         "The Verge",
@@ -521,6 +539,8 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "Publickey",
         "日経XTECH",
         "はてブ IT",
+        "ZDNet",
+        "TechRepublic",
     },
 }
 
@@ -1319,7 +1339,7 @@ def get_articles(
         "github_release": 3,
         "docs_update": 3,
         "official_x": 2 if include_x else 0,
-        "official_blog": 8,
+        "official_blog": 10,
         "rss_news": limit,  # per_source制御で多様性を担保するためtype上限は緩める
     }
     MAX_PER_SOURCE = 2  # 同一ソースの占有を防ぐ（原則最大2件）
@@ -1679,7 +1699,7 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword,
       if(data.cancelled)throw new Error('取得をキャンセルしました');
       if(!r.ok||data.error)throw new Error(data.error||`HTTP ${r.status}`);
       if(data.articles&&data.articles.length){
-        lastFetchInfo={count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days, expandedDays:data.expanded_days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
+        lastFetchInfo={count:data.count||data.articles.length, todayCount:data.today_count??null, category:data.category, lang:data.lang, days:data.days, expandedDays:data.expanded_days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
         console.log('[候補取得]', lastFetchInfo);
         return data.articles;
       }
@@ -1751,11 +1771,14 @@ function renderCands(){
   if(lastFetchInfo){
     const mode=lastFetchInfo.lang==='en'?'海外':'国内';
     const period=String(lastFetchInfo.days)==='0'?'今日':`${lastFetchInfo.days}日以内`;
-    const expanded=lastFetchInfo.expandedDays&&String(lastFetchInfo.expandedDays)!==String(lastFetchInfo.days)?` / ${lastFetchInfo.expandedDays}日以内で補完`:'';
+    const isExpanded=lastFetchInfo.expandedDays&&String(lastFetchInfo.expandedDays)!==String(lastFetchInfo.days);
+    const expanded=isExpanded?` / ${lastFetchInfo.expandedDays}日以内で補完`:'';
     const retry=lastFetchInfo.usedFullFetch?' / 追加取得あり':'';
     const kw=lastFetchInfo.keyword?` / 検索:「${lastFetchInfo.keyword}」`:'';
     const catLabel=lastFetchInfo.category||'全カテゴリ';
-    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得 / ${catLabel} / ${mode} / ${period}${expanded}${retry}${kw}`;
+    const todayNote=(isExpanded&&lastFetchInfo.todayCount!=null&&lastFetchInfo.todayCount<lastFetchInfo.count)
+      ?`（今日${lastFetchInfo.todayCount}件）`:'';
+    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得${todayNote} / ${catLabel} / ${mode} / ${period}${expanded}${retry}${kw}`;
   }else{
     el('candidateInfo').textContent='';
   }
@@ -2254,10 +2277,15 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_not_cancelled(cancel_event)
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
-                print(f"[候補取得] 取得件数={len(articles)}", flush=True)
+                today_count = sum(
+                    1 for a in articles
+                    if a.get("type") == "official_x" or a.get("ageDays") == 0
+                )
+                print(f"[候補取得] 取得件数={len(articles)} うち今日={today_count}", flush=True)
                 self.send_json(200, {
                     "articles": articles,
                     "count": len(articles),
+                    "today_count": today_count,
                     "category": category,
                     "lang": lang,
                     "days": days,

@@ -1,6 +1,6 @@
 # IT記事投稿ジェネレーター仕様
 
-更新日: 2026-06-16（コード実態に合わせて全面更新）  
+更新日: 2026-06-16  
 リポジトリ: `https://github.com/naokoni24/post-generator`  
 ブランチ: `master`  
 対象ファイル: `it_post_generator_rss.py`
@@ -150,34 +150,46 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - WIRED AI
 - MIT Technology Review
 - Ars Technica（Tech、Gadgets）
+- The Decoder（AI特化、高頻度）
+- AI News（AI特化、高頻度）
 - AWS Blog
 - The New Stack
+- InfoQ（クラウド・DevOps、高頻度）
+- DevOps.com（高頻度）
+- SD Times
+- Kubernetes Blog
+- Docker Blog
+- CNCF Blog
+- HashiCorp Blog
 - The Hacker News
 - Krebs on Security
 - Dark Reading
 - SANS Internet Storm Center
 - Help Net Security
+- BleepingComputer（高頻度）
+- Security Affairs
 - GitHub Blog
 - Stack Overflow Blog
 - Smashing Magazine
 - CSS-Tricks
 - Hacker News
 - Product Hunt
-- Kubernetes Blog
-- Docker Blog
-- CNCF Blog
-- HashiCorp Blog
+- Lifehacker
+- How-To Geek（高頻度）
+- MakeUseOf（高頻度）
 - Sifted
 - EU-Startups
 - Tech.eu
 - CIO
 - CIO Dive
 - InformationWeek
+- VentureBeat Enterprise
+- ZDNet（高頻度）
+- TechRepublic（高頻度）
 - Engadget
 - The Verge
 - Gizmodo
 - Tom's Hardware
-- Lifehacker
 - arxiv AI（cs.AI）
 - arxiv ML（cs.LG）
 
@@ -243,6 +255,16 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 | 公式Blog | 90 |
 | 公式X | 85 |
 | RSSニュース | 70 |
+
+## 取得上限（type_caps）
+
+| ソース種別 | 上限 |
+| --- | ---: |
+| GitHub Releases | 3 |
+| Docs更新 | 3 |
+| 公式Blog | 10 |
+| 公式X | 2（オフ時は0） |
+| RSSニュース | 上限なし（ソース分散で制御） |
 
 ## 取得先モード
 
@@ -551,3 +573,8 @@ RenderでのWeb運用を想定しています。
 - GitHub Releases / Docs更新のカテゴリ別ソースを整備
 - arxiv（AI/ML）、SANS Internet Storm Center、CSS-Tricks、Tom's Hardwareなどのソースを追加
 - 国内ソースにケータイ Watch、クラウド Watch を追加
+- 今日の記事が少ない問題対策: カテゴリごとに高頻度海外ニュースフィードを追加（The Decoder/AI News/BleepingComputer/InfoQ/SD Times/DevOps.com/How-To Geek/MakeUseOf/ZDNet/TechRepublic など）
+- 幅広いソース（How-To Geek、MakeUseOf、ZDNet、TechRepublic 等）をカテゴリ関連度フィルタ対象に追加し、カテゴリ外記事の混入を防止
+- 公式Blog取得上限を8件→10件に引き上げ
+- 候補取得結果のinfo barに「今日○件」を表示（補完発動時のみ表示）
+- `/api/rss` レスポンスに `today_count` フィールドを追加

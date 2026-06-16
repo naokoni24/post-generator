@@ -231,8 +231,6 @@ RSS_FEEDS = {
 GITHUB_RELEASE_FEEDS = {
     "AI・機械学習": [
         {"url": "https://github.com/openai/openai-python/releases.atom", "source": "GitHub Releases: openai/openai-python"},
-        {"url": "https://github.com/huggingface/transformers/releases.atom", "source": "GitHub Releases: huggingface/transformers"},
-        {"url": "https://github.com/langchain-ai/langchain/releases.atom", "source": "GitHub Releases: langchain-ai/langchain"},
     ],
     "クラウド・AWS": [
         {"url": "https://github.com/aws/aws-cdk/releases.atom", "source": "GitHub Releases: aws/aws-cdk"},

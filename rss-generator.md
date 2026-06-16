@@ -1,6 +1,6 @@
 # IT記事投稿ジェネレーター仕様
 
-更新日: 2026-06-16  
+更新日: 2026-06-16（コード実態に合わせて全面更新）  
 リポジトリ: `https://github.com/naokoni24/post-generator`  
 ブランチ: `master`  
 対象ファイル: `it_post_generator_rss.py`
@@ -120,13 +120,15 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 主な国内ソース:
 
-- ITmedia
+- ITmedia（AI、Enterprise、NEWS、ビジネス、セキュリティ）
 - CNET Japan
 - Publickey
 - はてなブックマーク IT
 - AINOW
 - INTERNET Watch
 - PC Watch
+- ケータイ Watch
+- クラウド Watch
 - CodeZine
 - Zenn
 - Qiita 人気記事
@@ -141,21 +143,25 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - Google DeepMind Blog
 - Hugging Face Blog
 - Google AI Blog
+- Google Research Blog
 - Meta Engineering Blog
-- TechCrunch
-- VentureBeat
-- WIRED
+- TechCrunch（AI、Startups、Enterprise）
+- VentureBeat（AI、Enterprise）
+- WIRED AI
 - MIT Technology Review
-- Ars Technica
+- Ars Technica（Tech、Gadgets）
 - AWS Blog
 - The New Stack
 - The Hacker News
 - Krebs on Security
 - Dark Reading
+- SANS Internet Storm Center
 - Help Net Security
 - GitHub Blog
 - Stack Overflow Blog
 - Smashing Magazine
+- CSS-Tricks
+- Hacker News
 - Product Hunt
 - Kubernetes Blog
 - Docker Blog
@@ -167,48 +173,47 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - CIO
 - CIO Dive
 - InformationWeek
-- VentureBeat Enterprise
 - Engadget
 - The Verge
+- Gizmodo
+- Tom's Hardware
+- Lifehacker
+- arxiv AI（cs.AI）
+- arxiv ML（cs.LG）
 
 ### GitHub Releases
 
 カテゴリごとに主要プロジェクトのGitHub Releases Atomフィードを取得します。
 
-例:
+カテゴリごとの設定（現在）:
 
-- `openai/openai-python`
-- `huggingface/transformers`
-- `langchain-ai/langchain`
-- `aws/aws-cdk`
-- `cloudflare/workers-sdk`
-- `aquasecurity/trivy`
-- `vercel/next.js`
-- `nodejs/node`
-- `microsoft/TypeScript`
-- `facebook/react`
-- `obsidianmd/obsidian-releases`
-- `microsoft/vscode`
-- `n8n-io/n8n`
+| カテゴリ | リポジトリ |
+| --- | --- |
+| AI・機械学習 | openai/openai-python、huggingface/transformers、langchain-ai/langchain |
+| クラウド・AWS | aws/aws-cdk、aws/aws-cli、cloudflare/workers-sdk |
+| セキュリティ | ossf/scorecard、aquasecurity/trivy、owasp-dep-scan/dep-scan |
+| 開発 | vercel/next.js、nodejs/node、microsoft/TypeScript、facebook/react |
+| スタートアップ | vercel/next.js、supabase/supabase、stripe/stripe-node |
+| 便利ツール・Tips | Raycast Changelog、obsidianmd/obsidian-releases、microsoft/vscode |
+| ガジェット・ハードウェア | raspberrypi/firmware、arduino/Arduino |
+| ビジネス・DX | microsoft/PowerToys、n8n-io/n8n |
 
 ### Docs更新 / 公式Blog
 
 公式Blog、Changelog、Release Notes系のフィードを取得します。
 
-例:
+カテゴリごとの設定（現在）:
 
-- OpenAI News / Docs
-- Google Developers Blog
-- AWS What's New
-- Cloudflare Blog
-- Google Cloud Release Notes
-- GitHub Changelog
-- Vercel Changelog
-- Chrome Developers Blog
-- Y Combinator Blog
-- Stripe Blog
-- Google Workspace Updates
-- Apple Developer Releases
+| カテゴリ | フィード |
+| --- | --- |
+| AI・機械学習 | OpenAI News / Docs、Google Developers Blog |
+| クラウド・AWS | AWS What's New、Cloudflare Blog、Google Cloud Release Notes |
+| セキュリティ | Cloudflare Security Blog |
+| 開発 | GitHub Changelog、Vercel Changelog、Chrome Developers Blog |
+| スタートアップ | Y Combinator Blog、Stripe Blog |
+| 便利ツール・Tips | GitHub Changelog、Chrome Developers Blog、Google Workspace Updates |
+| ガジェット・ハードウェア | Apple Developer Releases |
+| ビジネス・DX | （現在未設定） |
 
 ### 公式X
 
@@ -216,22 +221,18 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 公式XはX検索URLを候補として出します。アプリ側でXの投稿本文を直接スクレイピングする構成ではありません。
 
-例:
+カテゴリごとにアカウントを設定しています（現在）:
 
-- OpenAI
-- Anthropic
-- Google DeepMind
-- AWS
-- Azure
-- Google Cloud
-- Microsoft Threat Intelligence
-- CISA
-- GitHub
-- Vercel
-- Node.js
-- Product Hunt
-- Raycast
-- Obsidian
+| カテゴリ | アカウント |
+| --- | --- |
+| AI・機械学習 | @OpenAI、@AnthropicAI、@GoogleDeepMind |
+| クラウド・AWS | @awscloud、@Azure、@googlecloud |
+| セキュリティ | @msftsecintel、@CISAgov、@TheHackersNews |
+| 開発 | @github、@vercel、@nodejs |
+| スタートアップ | @ycombinator、@stripe、@supabase |
+| 便利ツール・Tips | @ProductHunt、@raycastapp、@obsdmd |
+| ガジェット・ハードウェア | @verge、@engadget |
+| ビジネス・DX | @Forbes、@MicrosoftTeams |
 
 ## 信頼度スコア
 
@@ -281,8 +282,9 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 ただし並び順は新しい順なので、今日の記事が先に出ます。
 
-海外カテゴリ検索では鮮度を優先し、自動補完は最大3日以内までに制限します。
-`1週間以内` を明示的に選んだ場合のみ、7日以内の記事を候補に含めます。
+海外（`en`）カテゴリ検索では鮮度を優先し、自動補完は最大3日以内までに制限します。  
+国内（`jp`）カテゴリ検索は自動補完の上限が7日以内です。  
+`1週間以内` を明示的に選んだ場合は、国内・海外ともに7日以内の記事を候補に含めます。
 
 ### キーワード検索
 
@@ -373,8 +375,23 @@ APIキーが未設定の場合、翻訳は実行されません。
 - 記事URL
 - 記事本文
 - 選択した感想スタイル
-- ハッシュタグ
+- ハッシュタグ（自動生成）
 - Xの280文字制限
+
+### ハッシュタグ自動生成
+
+記事選択後、投稿文生成の前に記事内容に合ったハッシュタグを自動生成します。
+
+- 重要度順に最大3つ
+- Claude APIで記事タイトルと本文から生成
+- 日本語または一般的な英語技術用語（例: `#生成AI`、`#LLM`、`#OpenAI`）
+- 生成後は手動編集可能
+
+### 文字数オーバー時の処理
+
+1. ハッシュタグを後ろから1つずつ削除して280文字以内に収める
+2. それでもオーバーなら Claude API で本文を自動短縮
+3. 手動短縮ボタン（✂️ 自動短縮）は常時表示可能
 
 X文字数カウントは以下のルールです。
 
@@ -382,7 +399,7 @@ X文字数カウントは以下のルールです。
 - 基本ラテン文字など: 1文字扱い
 - URL: 23文字扱い
 
-280文字を超えた場合は自動短縮ボタンを表示します。
+280文字を超えた場合は自動短縮ボタン（✂️ 自動短縮）が表示されます。
 
 ## APIエンドポイント
 
@@ -451,7 +468,7 @@ X文字数カウントは以下のルールです。
 
 - キーワードなし: 最大12並列
 - キーワードのみ: 最大30並列
-- 翻訳: 最大6バッチ並列
+- 翻訳: バッチサイズ5件、最大6バッチ並列
 - サーバー: `ThreadingHTTPServer` により、取得中でもキャンセルAPIを受け付ける
 
 ## 認証仕様
@@ -526,5 +543,11 @@ RenderでのWeb運用を想定しています。
 - このObsidianノートを毎回読み込み、作業後に更新する運用ルールを追加
 - 候補取得中にキャンセルできるUI/APIを追加
 - サーバーを `ThreadingHTTPServer` 化し、取得中でもキャンセルAPIを受け付けるように変更
-- 海外カテゴリ検索の自動補完を最大3日以内に制限し、古い記事が出すぎないように変更
+- 海外カテゴリ検索の自動補完を最大3日以内に制限し、古い記事が出すぎないように変更（国内は最大7日）
 - カテゴリ検索の選定ロジックを当日記事優先に変更。当日記事がある場合は、同一ソース上限より鮮度を優先
+- 公式XアカウントをカテゴリごとのX検索URLとして整理
+- ハッシュタグ自動生成を投稿文生成フローに追加（3つ、重要度順）
+- 文字数オーバー時はハッシュタグ削除→本文短縮の2段階処理に変更
+- GitHub Releases / Docs更新のカテゴリ別ソースを整備
+- arxiv（AI/ML）、SANS Internet Storm Center、CSS-Tricks、Tom's Hardwareなどのソースを追加
+- 国内ソースにケータイ Watch、クラウド Watch を追加

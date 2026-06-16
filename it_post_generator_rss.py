@@ -1199,15 +1199,17 @@ def get_articles(
         return count
 
     executor = ThreadPoolExecutor(max_workers=30 if (keyword and not category) else 12)
-    futures = {}
+    futures = {}  # future -> (tag_or_atype, source_name)
     processed = set()
     try:
         for feed, atype in all_tasks:
             ensure_not_cancelled(cancel_event)
             if atype in ("github_release", "docs_update"):
-                futures[executor.submit(_fetch_group, feed, atype, SPECIAL_PER_FEED_LIMIT)] = atype
+                f = executor.submit(_fetch_group, feed, atype, SPECIAL_PER_FEED_LIMIT)
+                futures[f] = (atype, feed["source"])
             else:
-                futures[executor.submit(_fetch_rss, feed)] = "rss"
+                f = executor.submit(_fetch_rss, feed)
+                futures[f] = ("rss", feed["source"])
         started_at = _time.monotonic()
         try:
             completed_iter = as_completed(futures, timeout=fast_budget)
@@ -1233,9 +1235,9 @@ def get_articles(
                 except TimeoutError:
                     pass
 
-        skipped = sum(1 for f in futures if f not in processed and not f.done())
-        if skipped:
-            print(f"[RSS] 取得予算超過: 未完了{skipped}件をスキップ", flush=True)
+        timed_out = [futures[f][1] for f in futures if f not in processed and not f.done()]
+        if timed_out:
+            print(f"[RSS] タイムアウト({len(timed_out)}件): {timed_out}", flush=True)
         for future in futures:
             if future.done():
                 continue

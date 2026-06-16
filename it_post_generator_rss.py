@@ -809,7 +809,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
     cached = _RSS_CACHE.get(feed_url)
     if cached:
         ts, cached_items = cached
-        if _time.time() - ts < _RSS_CACHE_TTL and len(cached_items) >= limit:
+        if _time.time() - ts < _RSS_CACHE_TTL:
             return cached_items[:limit]
 
     try:
@@ -837,7 +837,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
 
         # RSS 2.0
         rss_items = [elem for elem in root.iter() if _local_name(elem) == 'item']
-        for item in rss_items[:limit]:
+        for item in rss_items:
             title = strip_tags(_first_text(item, 'title'))
             link  = strip_tags(_first_text(item, 'link'))
             date  = strip_tags(_first_text(item, 'pubDate', 'date', 'updated', 'published'))
@@ -850,7 +850,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
             atom_entries = root.findall('atom:entry', ns) or [
                 elem for elem in root.iter() if _local_name(elem) == 'entry'
             ]
-            for entry in atom_entries[:limit]:
+            for entry in atom_entries:
                 title = strip_tags(entry.findtext('atom:title', '', ns) or _first_text(entry, 'title'))
                 link_el = entry.find('atom:link', ns)
                 if link_el is None:
@@ -1258,6 +1258,21 @@ def get_articles(
             except Exception:
                 continue
             _store_items(tag, items)
+
+    # どのフィードから何件（うち今日何件）取得できたかをログ出力
+    import time as _log_time
+    _today_jst = __import__('datetime').datetime.now(__import__('datetime').timezone(__import__('datetime').timedelta(hours=9))).date()
+    _source_summary = {}
+    for a in jp_items + other_items + special_items:
+        src = a.get("source", "?")
+        age = article_age_days(a)
+        entry = _source_summary.setdefault(src, [0, 0])
+        entry[0] += 1
+        if age == 0:
+            entry[1] += 1
+    today_total = sum(v[1] for v in _source_summary.values())
+    today_sources = {k: v for k, v in _source_summary.items() if v[1] > 0}
+    print(f"[RSS取得結果] 合計{sum(v[0] for v in _source_summary.values())}件 今日{today_total}件 / ソース数{len(_source_summary)} 今日あり={list(today_sources.keys())}", flush=True)
 
     if include_x:
         ensure_not_cancelled(cancel_event)

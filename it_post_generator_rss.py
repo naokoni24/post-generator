@@ -1782,7 +1782,7 @@ function renderCands(){
     const period=String(lastFetchInfo.days)==='0'?'今日':`${lastFetchInfo.days}日以内`;
     const isExpanded=lastFetchInfo.expandedDays&&String(lastFetchInfo.expandedDays)!==String(lastFetchInfo.days);
     const expanded=isExpanded?` / ${lastFetchInfo.expandedDays}日以内で補完`:'';
-    const retry=lastFetchInfo.usedFullFetch?' / 追加取得あり':'';
+    const retry='';
     const kw=lastFetchInfo.keyword?` / 検索:「${lastFetchInfo.keyword}」`:'';
     const catLabel=lastFetchInfo.category||'全カテゴリ';
     const todayNote=(isExpanded&&lastFetchInfo.todayCount!=null&&lastFetchInfo.todayCount<lastFetchInfo.count)

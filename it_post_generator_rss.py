@@ -1525,7 +1525,7 @@ HTML = r"""<!DOCTYPE html>
     <h1 style="margin:0">📰 IT記事 投稿ジェネレーター <span class="rss-badge">複数ソース版</span></h1>
     <a href="/logout" style="font-size:.75rem;color:#999;text-decoration:none;border:1px solid #e5e5e5;border-radius:8px;padding:4px 10px;white-space:nowrap">ログアウト</a>
   </div>
-  <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得。必要な時だけ公式Xも追加</p>
+  <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得</p>
 
   <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid #e5e5e5;border-radius:8px;font-size:16px">
 
@@ -1540,11 +1540,6 @@ HTML = r"""<!DOCTYPE html>
       <input type="checkbox" id="officialFirst">
       <span>公式優先</span>
     </label>
-    <label class="source-toggle" style="margin-left:8px">
-      <input type="checkbox" id="includeX">
-      <span>公式Xも見る</span>
-    </label>
-    <span class="source-hint">速報チェック用。通常はオフがおすすめ</span>
     <label class="source-toggle" style="margin-left:8px">
       <span style="color:#888;font-size:12px">期間：</span>
       <select id="recentDays" style="font-size:13px;border:none;background:transparent;color:#555;cursor:pointer;outline:none">
@@ -1885,7 +1880,6 @@ function setFetching(on){
   // カテゴリ・言語ボタンをすべてロック／アンロック
   el('catGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
   el('langGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
-  el('includeX').disabled=on;
   el('recentDays').disabled=on;
 }
 
@@ -1910,7 +1904,7 @@ el('generateBtn').onclick=async()=>{
   setStatus(true,'複数ソースから候補を取得中...');
   setFetchCancelVisible(true);
   try{
-    const includeX=el('includeX').checked?'1':'0';
+    const includeX='0';
     const days=el('recentDays').value;
     const keyword=el('keywordBox').value.trim();
     candidates=await fetchCandidatesWithRetry(activeCat||'',activeLang,includeX,days,keyword,currentFetchRequestId,currentFetchController);

@@ -125,9 +125,6 @@ RSS_FEEDS = {
         # AI企業公式Blog（追加）
         {"url": "https://www.anthropic.com/rss.xml", "source": "Anthropic Blog"},
         {"url": "https://blog.google/products/gemini/rss/", "source": "Google Gemini Blog"},
-        # arxiv（各2件に絞る → per_feed_limitで制御）
-        {"url": "https://rss.arxiv.org/rss/cs.AI", "source": "arxiv AI"},
-        {"url": "https://rss.arxiv.org/rss/cs.LG", "source": "arxiv ML"},
     ],
     "クラウド・AWS": [
         # 国内

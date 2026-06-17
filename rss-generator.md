@@ -578,3 +578,13 @@ RenderでのWeb運用を想定しています。
 - 公式Blog取得上限を8件→10件に引き上げ
 - 候補取得結果のinfo barに「今日○件」を表示（補完発動時のみ表示）
 - `/api/rss` レスポンスに `today_count` フィールドを追加
+- fetch_rss のキャッシュバグ修正（limit>=キャッシュ件数で毎回再通信していた問題を解消）
+- RSSパース時の[:limit]上限を削除し、全件キャッシュするよう修正
+- タイムアウトしたフィード名をサーバーログに出力（`[RSS] タイムアウト(N件): [...]`）
+- タイムアウト常発フィードを削除（The Decoder, AI News, OpenAI News/Docs, Google Developers Blog, huggingface/transformers, langchain GitHub Releases, arxiv AI/ML）
+- RSSフェッチ予算をRender（米国サーバー）向けに拡大（fast: 1.2s→4.0s、max: 2.6s→8.0s）
+- Renderのデプロイブランチをmaster→mainに修正
+- AIカテゴリに公式ブログ追加（Anthropic Blog、Google Gemini Blog、Microsoft AI Blog、NVIDIA Blog、Amazon Science、Apple ML Research、Mistral AI Blog）
+- 「公式優先」チェックボックスを追加（チェック時にofficial_blog/github_release/docs_updateを上位表示）
+- 「公式Xも見る」チェックボックスを削除（include_xは常にオフ）
+- info barの「追加取得あり」表示を削除

@@ -125,6 +125,11 @@ RSS_FEEDS = {
         # AI企業公式Blog（追加）
         {"url": "https://www.anthropic.com/rss.xml", "source": "Anthropic Blog"},
         {"url": "https://blog.google/products/gemini/rss/", "source": "Google Gemini Blog"},
+        {"url": "https://blogs.microsoft.com/ai/feed/", "source": "Microsoft AI Blog"},
+        {"url": "https://blogs.nvidia.com/feed/", "source": "NVIDIA Blog"},
+        {"url": "https://www.amazon.science/index.rss", "source": "Amazon Science"},
+        {"url": "https://machinelearning.apple.com/rss.xml", "source": "Apple ML Research"},
+        {"url": "https://mistral.ai/news/rss", "source": "Mistral AI Blog"},
     ],
     "クラウド・AWS": [
         # 国内
@@ -367,6 +372,11 @@ OFFICIAL_BLOG_SOURCES = {
     # AI企業公式Blog
     "Anthropic Blog",
     "Google Gemini Blog",
+    "Microsoft AI Blog",
+    "NVIDIA Blog",
+    "Amazon Science",
+    "Apple ML Research",
+    "Mistral AI Blog",
     "OpenAI Blog",
     "OpenAI News / Docs",
     "Google DeepMind Blog",

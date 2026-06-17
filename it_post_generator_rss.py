@@ -365,6 +365,8 @@ OFFICIAL_BLOG_SOURCES = {
     "Supabase Blog",
     "Y Combinator Blog",
     # AI企業公式Blog
+    "Anthropic Blog",
+    "Google Gemini Blog",
     "OpenAI Blog",
     "OpenAI News / Docs",
     "Google DeepMind Blog",
@@ -1535,6 +1537,10 @@ HTML = r"""<!DOCTYPE html>
 
   <div class="source-options">
     <label class="source-toggle">
+      <input type="checkbox" id="officialFirst">
+      <span>公式優先</span>
+    </label>
+    <label class="source-toggle" style="margin-left:8px">
       <input type="checkbox" id="includeX">
       <span>公式Xも見る</span>
     </label>
@@ -1790,7 +1796,17 @@ function renderCands(){
   }else{
     el('candidateInfo').textContent='';
   }
-  const filtered=candidates.map((a,i)=>[i,a]);
+  const OFFICIAL_TYPES=new Set(['official_blog','github_release','docs_update']);
+  const officialFirst=el('officialFirst')&&el('officialFirst').checked;
+  let displayCandidates=[...candidates];
+  if(officialFirst){
+    displayCandidates.sort((a,b)=>{
+      const aOff=OFFICIAL_TYPES.has(a.type)?0:1;
+      const bOff=OFFICIAL_TYPES.has(b.type)?0:1;
+      return aOff-bOff;
+    });
+  }
+  const filtered=displayCandidates.map((a,i)=>[i,a]);
   const visibleCandidates=filtered.slice(0, visibleCount);
   if(!filtered.length){
     el('candidatesList').innerHTML='';
@@ -1872,6 +1888,8 @@ function setFetching(on){
   el('includeX').disabled=on;
   el('recentDays').disabled=on;
 }
+
+el('officialFirst').onchange=()=>renderCands();
 
 el('generateBtn').onclick=async()=>{
   el('errorBox').style.display='none';

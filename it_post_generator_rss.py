@@ -1891,6 +1891,7 @@ function setFetching(on){
   el('catGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
   el('langGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
   el('recentDays').disabled=on;
+  el('officialFirst').disabled=on;
 }
 
 el('officialFirst').onchange=()=>renderCands();

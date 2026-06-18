@@ -1929,7 +1929,7 @@ el('generateBtn').onclick=async()=>{
     currentFetchRequestId=null;
     currentFetchController=null;
     el('candidatesSection').style.display='block';
-    el('opinionPanel').style.display='block';
+    el('opinionPanel').style.display='none';
     renderOpinionStyles();
     renderCands();
     translateCandidatesInBackground();

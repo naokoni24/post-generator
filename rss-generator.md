@@ -588,3 +588,4 @@ RenderでのWeb運用を想定しています。
 - 「公式優先」チェックボックスを追加（チェック時にofficial_blog/github_release/docs_updateを上位表示）
 - 「公式Xも見る」チェックボックスを削除（include_xは常にオフ）
 - info barの「追加取得あり」表示を削除
+- 検索中は「公式優先」チェックボックスを無効化

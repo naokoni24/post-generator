@@ -1838,6 +1838,8 @@ function setFetching(on){
   // カテゴリ・言語ボタンをすべてロック／アンロック
   el('catGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
   el('langGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
+  const srcOpts=document.querySelector('.source-options');
+  if(srcOpts){ srcOpts.style.opacity=on?'0.4':''; srcOpts.style.pointerEvents=on?'none':''; }
   el('includeX').disabled=on;
   el('recentDays').disabled=on;
 }

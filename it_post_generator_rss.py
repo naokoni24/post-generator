@@ -1849,6 +1849,7 @@ function renderCands(){
 function selectCand(i){
   selectedIdx=i;
   el('selectBtn').disabled=false;
+  el('opinionPanel').style.display='block';
   // スティッキーバー更新
   el('stickyBar').style.display='block';
   el('stickyTitle').textContent=candidates[i]?.title||'';

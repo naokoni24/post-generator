@@ -168,6 +168,8 @@ RSS_FEEDS = {
         {"url": "https://www.helpnetsecurity.com/feed/", "source": "Help Net Security"},
         {"url": "https://www.bleepingcomputer.com/feed/", "source": "BleepingComputer"},
         {"url": "https://securityaffairs.com/feed", "source": "Security Affairs"},
+        # 当日の脅威・脆弱性ニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28cybersecurity+OR+vulnerability+OR+ransomware+OR+%22data+breach%22+OR+%22zero-day%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Security"},
     ],
     "開発": [
         # 国内
@@ -183,6 +185,8 @@ RSS_FEEDS = {
         {"url": "https://www.smashingmagazine.com/feed/", "source": "Smashing Magazine"},
         {"url": "https://css-tricks.com/feed/", "source": "CSS-Tricks"},
         {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
+        # 当日の開発者向けニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28%22software+development%22+OR+programming+OR+GitHub+OR+%22developer+tools%22+OR+%22open+source%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Development"},
     ],
     "スタートアップ": [
         # 国内
@@ -191,6 +195,8 @@ RSS_FEEDS = {
         # 海外
         {"url": "https://techcrunch.com/category/startups/feed/", "source": "TechCrunch Startups"},
         {"url": "https://venturebeat.com/feed/", "source": "VentureBeat"},
+        # 当日の資金調達・スタートアップニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28startup+OR+funding+OR+%22venture+capital%22+OR+%22seed+round%22+OR+%22series+A%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Startups"},
         {"url": "https://techcrunch.com/feed/", "source": "TechCrunch"},
         {"url": "https://sifted.eu/feed", "source": "Sifted"},
         {"url": "https://www.eu-startups.com/feed/", "source": "EU-Startups"},
@@ -208,6 +214,10 @@ RSS_FEEDS = {
         {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
         {"url": "https://www.howtogeek.com/feed/", "source": "How-To Geek"},
         {"url": "https://www.makeuseof.com/feed/", "source": "MakeUseOf"},
+        # 当日のアプリ・業務効率化ニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28%22productivity+app%22+OR+%22software+tool%22+OR+%22developer+tool%22+OR+%22AI+tool%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Tools"},
+        {"url": "https://news.google.com/rss/search?q=%28%22app+update%22+OR+%22software+update%22+OR+%22browser+extension%22+OR+%22productivity+software%22+OR+automation%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News App Updates"},
+        {"url": "https://news.google.com/rss/search?q=%28%22iPhone+app%22+OR+%22Android+app%22+OR+%22Windows+app%22+OR+%22Mac+app%22+OR+%22Chrome+extension%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Apps"},
     ],
     "ガジェット・ハードウェア": [
         # 国内
@@ -220,6 +230,8 @@ RSS_FEEDS = {
         {"url": "https://feeds.arstechnica.com/arstechnica/gadgets", "source": "Ars Technica Gadgets"},
         {"url": "https://gizmodo.com/rss", "source": "Gizmodo"},
         {"url": "https://www.tomshardware.com/feeds/all", "source": "Tom's Hardware"},
+        # 当日の製品・ハードウェアニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28smartphone+OR+laptop+OR+gadget+OR+hardware+OR+%22consumer+technology%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Hardware"},
     ],
     "ビジネス・DX": [
         # 国内
@@ -236,6 +248,8 @@ RSS_FEEDS = {
         {"url": "https://venturebeat.com/category/enterprise/feed", "source": "VentureBeat Enterprise"},
         {"url": "https://www.zdnet.com/news/rss.xml", "source": "ZDNet"},
         {"url": "https://www.techrepublic.com/rss/", "source": "TechRepublic"},
+        # 当日のDX・エンタープライズニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28%22digital+transformation%22+OR+%22enterprise+software%22+OR+SaaS+OR+%22business+technology%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Business Tech"},
     ],
 }
 

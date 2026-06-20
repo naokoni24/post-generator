@@ -160,6 +160,7 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - The New Stack（AI・クラウド・開発）
 - Google News AI（AI企業・モデル / AIエージェントに限定した当日補完）
 - Google News Cloud（AWS・主要クラウド / DevOps・クラウドネイティブに限定した当日補完）
+- Google News Security / Development / Startups / Tools / App Updates / Apps / Hardware / Business Tech（各カテゴリに限定した当日補完）
 - AWS Blog
 - The New Stack
 - InfoQ（クラウド・DevOps、高頻度）
@@ -606,3 +607,4 @@ RenderでのWeb運用を想定しています。
 - `今日` 指定で残っていた最大期間への自動補完も停止し、レスポンス直前にも当日以外を除外する二重チェックを追加
 - Google Newsの同一ニュースを、見出しが異なる場合も主要語の一致で重複除外するように変更
 - クラウド・AWSの海外・今日検索を補強するため、Google Newsのクラウド／DevOps限定フィードを追加
+- 全カテゴリの海外・今日検索を補強するため、カテゴリ別のGoogle Newsフィードを追加

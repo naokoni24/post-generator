@@ -2356,7 +2356,7 @@ class Handler(BaseHTTPRequestHandler):
                     _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(expanded_days, full=True)
-                if not keyword and category and len(articles) < 20 and expanded_days < auto_expand_max_days:
+                if not keyword and category and days > 0 and len(articles) < 20 and expanded_days < auto_expand_max_days:
                     expanded_days = auto_expand_max_days
                     print(f"[候補取得] {len(articles)}件のため{auto_expand_max_days}日以内で補完します", flush=True)
                     _RSS_FAIL_CACHE.clear()
@@ -2370,6 +2370,13 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_not_cancelled(cancel_event)
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
+                # 防御的に最終レスポンスでも「今日」の条件を適用する。
+                # 補完・キャッシュなど将来の取得経路が増えても、前日以前の記事を返さない。
+                if days == 0:
+                    before_today_filter = len(articles)
+                    articles = [a for a in articles if a.get("ageDays") == 0]
+                    if len(articles) != before_today_filter:
+                        print(f"[候補取得] 今日以外の記事を{before_today_filter - len(articles)}件除外", flush=True)
                 today_count = sum(
                     1 for a in articles
                     if a.get("type") == "official_x" or a.get("ageDays") == 0

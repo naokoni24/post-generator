@@ -652,6 +652,42 @@ def article_identity_keys(article):
         keys.append(("title", title))
     return keys
 
+_STORY_STOP_WORDS = {
+    "a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "of", "on",
+    "or", "the", "to", "with", "after", "before", "over", "new", "says", "will",
+}
+
+def articles_describe_same_story(first, second):
+    """Google News内で見出し表現が異なる同一ニュースを検出する。"""
+    if not (
+        first.get("type") == "rss_news"
+        and second.get("type") == "rss_news"
+        and first.get("source", "").startswith("Google News ")
+        and second.get("source", "").startswith("Google News ")
+    ):
+        return False
+
+    def _title_tokens(article):
+        # 翻訳済みキャッシュと比較する場合も、原題を優先して同じ基準で判定する。
+        title = article.get("title_en") or article.get("title", "")
+        words = re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKC", title).lower())
+        return [word for word in words if len(word) >= 3 and word not in _STORY_STOP_WORDS]
+
+    first_tokens = _title_tokens(first)
+    second_tokens = _title_tokens(second)
+    if not first_tokens or not second_tokens:
+        return False
+    shared = set(first_tokens) & set(second_tokens)
+    overlap = len(shared) / min(len(set(first_tokens)), len(set(second_tokens)))
+    first_bigrams = set(zip(first_tokens, first_tokens[1:]))
+    second_bigrams = set(zip(second_tokens, second_tokens[1:]))
+    # 固有名詞4語以上、または人名等の連続2語を含む3語以上が一致する場合に統合する。
+    return (
+        len(shared) >= 4 and overlap >= 0.5
+    ) or (
+        len(shared) >= 3 and overlap >= 0.45 and bool(first_bigrams & second_bigrams)
+    )
+
 def fetch_article_body(url, char_limit=1500):
     """記事URLから本文テキストを取得して返す"""
     try:
@@ -744,7 +780,11 @@ def merge_result_cache(cache_key, articles, limit, days_limit):
             if len(merged) >= limit:
                 break
             identity_keys = article_identity_keys(article)
-            if not identity_keys or any(key in seen for key in identity_keys):
+            if (
+                not identity_keys
+                or any(key in seen for key in identity_keys)
+                or any(articles_describe_same_story(article, existing) for existing in merged)
+            ):
                 continue
             age_days = article_age_days(article)
             if (
@@ -1354,7 +1394,11 @@ def get_articles(
     deduplicated = []
     for article in unique:
         identity_keys = article_identity_keys(article)
-        if not identity_keys or any(key in seen for key in identity_keys):
+        if (
+            not identity_keys
+            or any(key in seen for key in identity_keys)
+            or any(articles_describe_same_story(article, existing) for existing in deduplicated)
+        ):
             continue
         seen.update(identity_keys)
         deduplicated.append(article)

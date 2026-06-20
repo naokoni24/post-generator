@@ -15,11 +15,12 @@ from email.utils import parsedate_to_datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.request import urlopen, Request, HTTPRedirectHandler
 from urllib.error import URLError, HTTPError
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, urlencode
 import html
 import re
 import hmac
 import hashlib
+import unicodedata
 try:
     from zoneinfo import ZoneInfo
     LOCAL_TZ = ZoneInfo("Asia/Tokyo")
@@ -627,6 +628,30 @@ def build_article(title, link, source, date, article_type=None, summary=""):
         "trustScore": TRUST_SCORES[article_type],
     }
 
+def article_identity_keys(article):
+    """同一記事のURL違い・同一タイトル配信を判定するためのキーを返す。"""
+    keys = []
+    url = (article.get("url") or "").strip()
+    if url:
+        try:
+            parts = urlsplit(url)
+            # utm等の計測パラメータやフラグメントは記事の同一性に含めない。
+            query = urlencode([
+                (key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
+                if not key.lower().startswith(("utm_", "fbclid", "gclid"))
+            ], doseq=True)
+            url = urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), query, ""))
+        except ValueError:
+            pass
+        keys.append(("url", url))
+
+    title = unicodedata.normalize("NFKC", strip_tags(article.get("title", ""))).lower()
+    title = re.sub(r"[^\w\u3040-\u30ff\u3400-\u9fff]+", "", title)
+    # 短い定型見出し（例: "速報"）だけでは重複扱いにしない。
+    if len(title) >= 12:
+        keys.append(("title", title))
+    return keys
+
 def fetch_article_body(url, char_limit=1500):
     """記事URLから本文テキストを取得して返す"""
     try:
@@ -712,14 +737,14 @@ def merge_result_cache(cache_key, articles, limit, days_limit):
     now = _time.time()
     cached = _RESULT_CACHE.get(cache_key)
     merged = [dict(article) for article in articles]
-    seen = {article.get("url") for article in merged if article.get("url")}
+    seen = {key for article in merged for key in article_identity_keys(article)}
 
     if cached and now - cached[0] < RESULT_CACHE_TTL:
         for article in cached[1]:
             if len(merged) >= limit:
                 break
-            url = article.get("url")
-            if not url or url in seen:
+            identity_keys = article_identity_keys(article)
+            if not identity_keys or any(key in seen for key in identity_keys):
                 continue
             age_days = article_age_days(article)
             if (
@@ -731,7 +756,7 @@ def merge_result_cache(cache_key, articles, limit, days_limit):
             restored = dict(article)
             restored["ageDays"] = age_days
             merged.append(restored)
-            seen.add(url)
+            seen.update(identity_keys)
 
     _RESULT_CACHE[cache_key] = (now, [dict(article) for article in merged[:limit]])
     return merged[:limit]
@@ -1293,13 +1318,10 @@ def get_articles(
     else:
         # 海外: 国内ソースは候補に含めない
         all_items = special_items + other_items
-    seen = set()
     unique = []
     for a in all_items:
-        if a["url"] not in seen:
-            seen.add(a["url"])
-            a["ageDays"] = article_age_days(a)
-            unique.append(a)
+        a["ageDays"] = article_age_days(a)
+        unique.append(a)
     if category and not keyword:
         before_filter = len(unique)
         unique = [a for a in unique if is_category_relevant(a, category)]
@@ -1328,6 +1350,18 @@ def get_articles(
         )
 
     unique.sort(key=_article_sort_key)
+    seen = set()
+    deduplicated = []
+    for article in unique:
+        identity_keys = article_identity_keys(article)
+        if not identity_keys or any(key in seen for key in identity_keys):
+            continue
+        seen.update(identity_keys)
+        deduplicated.append(article)
+    duplicate_count = len(unique) - len(deduplicated)
+    if duplicate_count:
+        print(f"[重複除外] 同一記事の候補を{duplicate_count}件除外", flush=True)
+    unique = deduplicated
 
     if keyword:
         kw = keyword.strip().lower()

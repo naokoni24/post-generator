@@ -122,14 +122,17 @@ RSS_FEEDS = {
         {"url": "https://www.wired.com/feed/tag/ai/latest/rss", "source": "WIRED AI"},
         {"url": "https://www.technologyreview.com/feed/", "source": "MIT Technology Review"},
         {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
-        # AI企業公式Blog（追加）
-        {"url": "https://www.anthropic.com/rss.xml", "source": "Anthropic Blog"},
+        # AI特化ニュース（当日記事の補完）
+        {"url": "https://www.marktechpost.com/feed/", "source": "MarkTechPost"},
+        {"url": "https://www.infoworld.com/feed/", "source": "InfoWorld"},
+        {"url": "https://thenewstack.io/feed/", "source": "The New Stack"},
+        {"url": "https://the-decoder.com/feed/", "source": "The Decoder"},
+        {"url": "https://news.google.com/rss/search?q=%28OpenAI+OR+Anthropic+OR+Google+DeepMind+OR+%22AI+model%22+OR+%22generative+AI%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News AI Models"},
+        {"url": "https://news.google.com/rss/search?q=%28%22AI+agent%22+OR+%22AI+coding%22+OR+%22large+language+model%22+OR+LLM%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News AI Agents"},
+        # 取得確認済みのAI企業公式Blog
         {"url": "https://blog.google/products/gemini/rss/", "source": "Google Gemini Blog"},
-        {"url": "https://blogs.microsoft.com/ai/feed/", "source": "Microsoft AI Blog"},
         {"url": "https://blogs.nvidia.com/feed/", "source": "NVIDIA Blog"},
         {"url": "https://www.amazon.science/index.rss", "source": "Amazon Science"},
-        {"url": "https://machinelearning.apple.com/rss.xml", "source": "Apple ML Research"},
-        {"url": "https://mistral.ai/news/rss", "source": "Mistral AI Blog"},
     ],
     "クラウド・AWS": [
         # 国内
@@ -370,13 +373,9 @@ OFFICIAL_BLOG_SOURCES = {
     "Supabase Blog",
     "Y Combinator Blog",
     # AI企業公式Blog
-    "Anthropic Blog",
     "Google Gemini Blog",
-    "Microsoft AI Blog",
     "NVIDIA Blog",
     "Amazon Science",
-    "Apple ML Research",
-    "Mistral AI Blog",
     "OpenAI Blog",
     "OpenAI News / Docs",
     "Google DeepMind Blog",
@@ -384,7 +383,6 @@ OFFICIAL_BLOG_SOURCES = {
     "Google AI Blog",
     "Google Research Blog",
     "Meta Engineering Blog",
-    "Microsoft AI Blog",
     "Kubernetes Blog",
     "Docker Blog",
     "CNCF Blog",
@@ -484,6 +482,8 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "CNET Japan",
         "Ars Technica",
         "MIT Technology Review",
+        "InfoWorld",
+        "The New Stack",
     },
     "クラウド・AWS": {
         "Hacker News",

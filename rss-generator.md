@@ -2,7 +2,7 @@
 
 更新日: 2026-06-20
 リポジトリ: `https://github.com/naokoni24/post-generator`
-ブランチ: `master`
+ブランチ: `main`
 対象ファイル: `it_post_generator_rss.py`
 
 ## 運用ルール
@@ -13,7 +13,7 @@
 
 - 実装内容に合わせてこの `rss-generator.md` を更新
 - 必要に応じてリポジトリ内の仕様書も更新
-- `post-generator.git` の `master` ブランチへpush
+- `post-generator.git` の `main` ブランチへpush
 
 push先は必ず `https://github.com/naokoni24/post-generator` です。
 公式HP用の `tail_tech_hp.git` にはpushしません。
@@ -75,11 +75,13 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
   - 問いかけ
   - 実務目線
   - 懸念・考察
-  - 記事選択後、画面下部の `投稿文を生成` ボタン直上に表示
 - 取得中キャンセル
   - 取得中だけ `キャンセル` ボタンを表示
   - クリックするとブラウザ側の取得を中断
   - 同時にサーバー側へ `/api/cancel` を送り、該当 `request_id` の取得処理を停止
+- 感想スタイル
+  - 記事選択後、画面下部の `投稿文を生成` ボタン直上に表示
+  - 選択した記事に対する投稿生成時だけ利用可能
 
 ### 候補表示
 
@@ -153,6 +155,10 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - Ars Technica（Tech、Gadgets）
 - The Decoder（AI特化、高頻度）
 - AI News（AI特化、高頻度）
+- MarkTechPost（AI研究・実装、高頻度）
+- InfoWorld（AI・開発）
+- The New Stack（AI・クラウド・開発）
+- Google News AI（AI企業・モデル / AIエージェントに限定した当日補完）
 - AWS Blog
 - The New Stack
 - InfoQ（クラウド・DevOps、高頻度）
@@ -592,3 +598,5 @@ RenderでのWeb運用を想定しています。
 - 検索中は「公式優先」チェックボックスを無効化
 - 記事選択時に感想スタイルパネルを自動表示
 - 記事選択後の感想スタイルを、投稿文を生成ボタンの直上へ移動
+- AI海外の当日候補を増やすため、MarkTechPost / InfoWorld / The New Stack / Google News AI（AI企業・モデル、AIエージェント）を追加
+- 取得不能を確認したAnthropic / Microsoft AI / Apple ML Research / Mistral AIのRSSを削除し、初回取得の無駄な待機を削減

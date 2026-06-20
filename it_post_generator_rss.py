@@ -41,12 +41,12 @@ class FeedRedirectHandler(HTTPRedirectHandler):
 API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 PORT       = int(os.environ.get("PORT", 8765))
 RECENT_DAYS = 0
-RSS_FETCH_TIMEOUT = 1.8
-RSS_FETCH_FAST_BUDGET = 1.2
-RSS_FETCH_MAX_BUDGET = 2.6
-RSS_FULL_FETCH_TIMEOUT = 3.5
-RSS_FULL_FETCH_FAST_BUDGET = 3.0
-RSS_FULL_FETCH_MAX_BUDGET = 7.0
+RSS_FETCH_TIMEOUT = 4.0
+RSS_FETCH_FAST_BUDGET = 4.0
+RSS_FETCH_MAX_BUDGET = 8.0
+RSS_FULL_FETCH_TIMEOUT = 5.0
+RSS_FULL_FETCH_FAST_BUDGET = 6.0
+RSS_FULL_FETCH_MAX_BUDGET = 12.0
 RSS_PER_FEED_LIMIT = 10
 TODAY_FULL_FETCH_MULTIPLIER = 10
 SPECIAL_PER_FEED_LIMIT = 5
@@ -122,10 +122,14 @@ RSS_FEEDS = {
         {"url": "https://www.wired.com/feed/tag/ai/latest/rss", "source": "WIRED AI"},
         {"url": "https://www.technologyreview.com/feed/", "source": "MIT Technology Review"},
         {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
-        # HN（AI関連キーワード絞り込み）
-        # arxiv（各2件に絞る → per_feed_limitで制御）
-        {"url": "https://rss.arxiv.org/rss/cs.AI", "source": "arxiv AI"},
-        {"url": "https://rss.arxiv.org/rss/cs.LG", "source": "arxiv ML"},
+        # AI企業公式Blog（追加）
+        {"url": "https://www.anthropic.com/rss.xml", "source": "Anthropic Blog"},
+        {"url": "https://blog.google/products/gemini/rss/", "source": "Google Gemini Blog"},
+        {"url": "https://blogs.microsoft.com/ai/feed/", "source": "Microsoft AI Blog"},
+        {"url": "https://blogs.nvidia.com/feed/", "source": "NVIDIA Blog"},
+        {"url": "https://www.amazon.science/index.rss", "source": "Amazon Science"},
+        {"url": "https://machinelearning.apple.com/rss.xml", "source": "Apple ML Research"},
+        {"url": "https://mistral.ai/news/rss", "source": "Mistral AI Blog"},
     ],
     "クラウド・AWS": [
         # 国内
@@ -140,6 +144,10 @@ RSS_FEEDS = {
         {"url": "https://www.docker.com/feed/", "source": "Docker Blog"},
         {"url": "https://www.cncf.io/feed/", "source": "CNCF Blog"},
         {"url": "https://www.hashicorp.com/blog/feed.xml", "source": "HashiCorp Blog"},
+        # 高頻度クラウド・DevOpsニュース
+        {"url": "https://www.infoq.com/feed/", "source": "InfoQ"},
+        {"url": "https://devops.com/feed/", "source": "DevOps.com"},
+        {"url": "https://sdtimes.com/feed/", "source": "SD Times"},
     ],
     "セキュリティ": [
         # 国内
@@ -151,6 +159,8 @@ RSS_FEEDS = {
         {"url": "https://www.darkreading.com/rss.xml", "source": "Dark Reading"},
         {"url": "https://isc.sans.edu/rssfeed_full.xml", "source": "SANS Internet Storm Center"},
         {"url": "https://www.helpnetsecurity.com/feed/", "source": "Help Net Security"},
+        {"url": "https://www.bleepingcomputer.com/feed/", "source": "BleepingComputer"},
+        {"url": "https://securityaffairs.com/feed", "source": "Security Affairs"},
     ],
     "開発": [
         # 国内
@@ -189,6 +199,8 @@ RSS_FEEDS = {
         # 海外
         {"url": "https://www.producthunt.com/feed", "source": "Product Hunt"},
         {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
+        {"url": "https://www.howtogeek.com/feed/", "source": "How-To Geek"},
+        {"url": "https://www.makeuseof.com/feed/", "source": "MakeUseOf"},
     ],
     "ガジェット・ハードウェア": [
         # 国内
@@ -215,14 +227,14 @@ RSS_FEEDS = {
         {"url": "https://www.ciodive.com/feeds/news/", "source": "CIO Dive"},
         {"url": "https://www.informationweek.com/rss.xml", "source": "InformationWeek"},
         {"url": "https://venturebeat.com/category/enterprise/feed", "source": "VentureBeat Enterprise"},
+        {"url": "https://www.zdnet.com/news/rss.xml", "source": "ZDNet"},
+        {"url": "https://www.techrepublic.com/rss/", "source": "TechRepublic"},
     ],
 }
 
 GITHUB_RELEASE_FEEDS = {
     "AI・機械学習": [
         {"url": "https://github.com/openai/openai-python/releases.atom", "source": "GitHub Releases: openai/openai-python"},
-        {"url": "https://github.com/huggingface/transformers/releases.atom", "source": "GitHub Releases: huggingface/transformers"},
-        {"url": "https://github.com/langchain-ai/langchain/releases.atom", "source": "GitHub Releases: langchain-ai/langchain"},
     ],
     "クラウド・AWS": [
         {"url": "https://github.com/aws/aws-cdk/releases.atom", "source": "GitHub Releases: aws/aws-cdk"},
@@ -262,8 +274,6 @@ GITHUB_RELEASE_FEEDS = {
 
 DOCS_UPDATE_FEEDS = {
     "AI・機械学習": [
-        {"url": "https://openai.com/news/rss.xml", "source": "OpenAI News / Docs"},
-        {"url": "https://developers.googleblog.com/feeds/posts/default", "source": "Google Developers Blog"},
     ],
     "クラウド・AWS": [
         {"url": "https://aws.amazon.com/about-aws/whats-new/recent/feed/", "source": "AWS What's New"},
@@ -360,6 +370,13 @@ OFFICIAL_BLOG_SOURCES = {
     "Supabase Blog",
     "Y Combinator Blog",
     # AI企業公式Blog
+    "Anthropic Blog",
+    "Google Gemini Blog",
+    "Microsoft AI Blog",
+    "NVIDIA Blog",
+    "Amazon Science",
+    "Apple ML Research",
+    "Mistral AI Blog",
     "OpenAI Blog",
     "OpenAI News / Docs",
     "Google DeepMind Blog",
@@ -474,6 +491,8 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "Publickey",
         "ITmedia Enterprise",
         "The New Stack",
+        "InfoQ",
+        "SD Times",
     },
     "セキュリティ": {
         "Hacker News",
@@ -503,6 +522,8 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "INTERNET Watch",
         "PC Watch",
         "はてブ IT",
+        "How-To Geek",
+        "MakeUseOf",
     },
     "ガジェット・ハードウェア": {
         "The Verge",
@@ -521,6 +542,8 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "Publickey",
         "日経XTECH",
         "はてブ IT",
+        "ZDNet",
+        "TechRepublic",
     },
 }
 
@@ -789,7 +812,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
     cached = _RSS_CACHE.get(feed_url)
     if cached:
         ts, cached_items = cached
-        if _time.time() - ts < _RSS_CACHE_TTL and len(cached_items) >= limit:
+        if _time.time() - ts < _RSS_CACHE_TTL:
             return cached_items[:limit]
 
     try:
@@ -817,7 +840,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
 
         # RSS 2.0
         rss_items = [elem for elem in root.iter() if _local_name(elem) == 'item']
-        for item in rss_items[:limit]:
+        for item in rss_items:
             title = strip_tags(_first_text(item, 'title'))
             link  = strip_tags(_first_text(item, 'link'))
             date  = strip_tags(_first_text(item, 'pubDate', 'date', 'updated', 'published'))
@@ -830,7 +853,7 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
             atom_entries = root.findall('atom:entry', ns) or [
                 elem for elem in root.iter() if _local_name(elem) == 'entry'
             ]
-            for entry in atom_entries[:limit]:
+            for entry in atom_entries:
                 title = strip_tags(entry.findtext('atom:title', '', ns) or _first_text(entry, 'title'))
                 link_el = entry.find('atom:link', ns)
                 if link_el is None:
@@ -1179,15 +1202,17 @@ def get_articles(
         return count
 
     executor = ThreadPoolExecutor(max_workers=30 if (keyword and not category) else 12)
-    futures = {}
+    futures = {}  # future -> (tag_or_atype, source_name)
     processed = set()
     try:
         for feed, atype in all_tasks:
             ensure_not_cancelled(cancel_event)
             if atype in ("github_release", "docs_update"):
-                futures[executor.submit(_fetch_group, feed, atype, SPECIAL_PER_FEED_LIMIT)] = atype
+                f = executor.submit(_fetch_group, feed, atype, SPECIAL_PER_FEED_LIMIT)
+                futures[f] = (atype, feed["source"])
             else:
-                futures[executor.submit(_fetch_rss, feed)] = "rss"
+                f = executor.submit(_fetch_rss, feed)
+                futures[f] = ("rss", feed["source"])
         started_at = _time.monotonic()
         try:
             completed_iter = as_completed(futures, timeout=fast_budget)
@@ -1213,9 +1238,9 @@ def get_articles(
                 except TimeoutError:
                     pass
 
-        skipped = sum(1 for f in futures if f not in processed and not f.done())
-        if skipped:
-            print(f"[RSS] 取得予算超過: 未完了{skipped}件をスキップ", flush=True)
+        timed_out = [futures[f][1] for f in futures if f not in processed and not f.done()]
+        if timed_out:
+            print(f"[RSS] タイムアウト({len(timed_out)}件): {timed_out}", flush=True)
         for future in futures:
             if future.done():
                 continue
@@ -1238,6 +1263,21 @@ def get_articles(
             except Exception:
                 continue
             _store_items(tag, items)
+
+    # どのフィードから何件（うち今日何件）取得できたかをログ出力
+    import time as _log_time
+    _today_jst = __import__('datetime').datetime.now(__import__('datetime').timezone(__import__('datetime').timedelta(hours=9))).date()
+    _source_summary = {}
+    for a in jp_items + other_items + special_items:
+        src = a.get("source", "?")
+        age = article_age_days(a)
+        entry = _source_summary.setdefault(src, [0, 0])
+        entry[0] += 1
+        if age == 0:
+            entry[1] += 1
+    today_total = sum(v[1] for v in _source_summary.values())
+    today_sources = {k: v for k, v in _source_summary.items() if v[1] > 0}
+    print(f"[RSS取得結果] 合計{sum(v[0] for v in _source_summary.values())}件 今日{today_total}件 / ソース数{len(_source_summary)} 今日あり={list(today_sources.keys())}", flush=True)
 
     if include_x:
         ensure_not_cancelled(cancel_event)
@@ -1319,7 +1359,7 @@ def get_articles(
         "github_release": 3,
         "docs_update": 3,
         "official_x": 2 if include_x else 0,
-        "official_blog": 8,
+        "official_blog": 10,
         "rss_news": limit,  # per_source制御で多様性を担保するためtype上限は緩める
     }
     MAX_PER_SOURCE = 2  # 同一ソースの占有を防ぐ（原則最大2件）
@@ -1449,12 +1489,14 @@ HTML = r"""<!DOCTYPE html>
   .cand-check { width: 18px; height: 18px; border-radius: 50%; border: 1px solid #ddd; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; margin-top: 2px; }
   .cand-card.selected .cand-check { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
   .sticky-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #e5e5e5; padding: .75rem 1rem; display: none; z-index: 100; box-shadow: 0 -4px 16px rgba(0,0,0,.08); }
-  .sticky-bar-inner { max-width: 680px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
-  .sticky-article-title { font-size: 13px; color: #555; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sticky-gen-btn { font-size: 14px; padding: 10px 20px; border-radius: 10px; border: none; background: #1a1a1a; color: #fff; cursor: pointer; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
+  .sticky-bar-inner { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+  .sticky-article-title { font-size: 13px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #selectedOpinionSlot:empty { display: none; }
+  #selectedOpinionSlot #opinionPanel { background: transparent !important; border: none !important; padding: 0 !important; margin: 0 !important; }
+  .sticky-gen-btn { font-size: 14px; padding: 10px 20px; border-radius: 10px; border: none; background: #1a1a1a; color: #fff; cursor: pointer; font-weight: 500; width: 100%; }
   .sticky-gen-btn:hover { opacity: .85; }
   .sticky-gen-btn:disabled { opacity: .4; cursor: not-allowed; }
-  body.has-sticky { padding-bottom: 72px; }
+  body.has-sticky { padding-bottom: 210px; }
   .more-btn { font-size: 13px; padding: 8px 14px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; width: 100%; margin: 8px 0 10px; display: none; }
   .more-btn:hover { background: #f5f5f5; }
   .select-btn { font-size: 14px; padding: 9px 18px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; transition: all .15s; margin-bottom: 1.25rem; }
@@ -1495,7 +1537,7 @@ HTML = r"""<!DOCTYPE html>
     <h1 style="margin:0">📰 IT記事 投稿ジェネレーター <span class="rss-badge">複数ソース版</span></h1>
     <a href="/logout" style="font-size:.75rem;color:#999;text-decoration:none;border:1px solid #e5e5e5;border-radius:8px;padding:4px 10px;white-space:nowrap">ログアウト</a>
   </div>
-  <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得。必要な時だけ公式Xも追加</p>
+  <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得</p>
 
   <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid #e5e5e5;border-radius:8px;font-size:16px">
 
@@ -1507,10 +1549,9 @@ HTML = r"""<!DOCTYPE html>
 
   <div class="source-options">
     <label class="source-toggle">
-      <input type="checkbox" id="includeX">
-      <span>公式Xも見る</span>
+      <input type="checkbox" id="officialFirst">
+      <span>公式優先</span>
     </label>
-    <span class="source-hint">速報チェック用。通常はオフがおすすめ</span>
     <label class="source-toggle" style="margin-left:8px">
       <span style="color:#888;font-size:12px">期間：</span>
       <select id="recentDays" style="font-size:13px;border:none;background:transparent;color:#555;cursor:pointer;outline:none">
@@ -1679,7 +1720,7 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword,
       if(data.cancelled)throw new Error('取得をキャンセルしました');
       if(!r.ok||data.error)throw new Error(data.error||`HTTP ${r.status}`);
       if(data.articles&&data.articles.length){
-        lastFetchInfo={count:data.count||data.articles.length, category:data.category, lang:data.lang, days:data.days, expandedDays:data.expanded_days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
+        lastFetchInfo={count:data.count||data.articles.length, todayCount:data.today_count??null, category:data.category, lang:data.lang, days:data.days, expandedDays:data.expanded_days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
         console.log('[候補取得]', lastFetchInfo);
         return data.articles;
       }
@@ -1751,17 +1792,30 @@ function renderCands(){
   if(lastFetchInfo){
     const mode=lastFetchInfo.lang==='en'?'海外':'国内';
     const period=String(lastFetchInfo.days)==='0'?'今日':`${lastFetchInfo.days}日以内`;
-    const expanded=lastFetchInfo.expandedDays&&String(lastFetchInfo.expandedDays)!==String(lastFetchInfo.days)?` / ${lastFetchInfo.expandedDays}日以内で補完`:'';
-    const retry=lastFetchInfo.usedFullFetch?' / 追加取得あり':'';
+    const isExpanded=lastFetchInfo.expandedDays&&String(lastFetchInfo.expandedDays)!==String(lastFetchInfo.days);
+    const expanded=isExpanded?` / ${lastFetchInfo.expandedDays}日以内で補完`:'';
+    const retry='';
     const kw=lastFetchInfo.keyword?` / 検索:「${lastFetchInfo.keyword}」`:'';
     const catLabel=lastFetchInfo.category||'全カテゴリ';
-    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得 / ${catLabel} / ${mode} / ${period}${expanded}${retry}${kw}`;
+    const todayNote=(isExpanded&&lastFetchInfo.todayCount!=null&&lastFetchInfo.todayCount<lastFetchInfo.count)
+      ?`（今日${lastFetchInfo.todayCount}件）`:'';
+    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得${todayNote} / ${catLabel} / ${mode} / ${period}${expanded}${retry}${kw}`;
   }else{
     el('candidateInfo').textContent='';
   }
-  const filtered=candidates.map((a,i)=>[i,a]);
-  const visibleCandidates=filtered.slice(0, visibleCount);
-  if(!filtered.length){
+  const OFFICIAL_TYPES=new Set(['official_blog','github_release','docs_update']);
+  const officialFirst=el('officialFirst')&&el('officialFirst').checked;
+  // [origIdx, article] のペアでソートし、元インデックスを保持
+  let displayCandidates=candidates.map((a,i)=>[i,a]);
+  if(officialFirst){
+    displayCandidates.sort(([,a],[,b])=>{
+      const aOff=OFFICIAL_TYPES.has(a.type)?0:1;
+      const bOff=OFFICIAL_TYPES.has(b.type)?0:1;
+      return aOff-bOff;
+    });
+  }
+  const visibleCandidates=displayCandidates.slice(0, visibleCount);
+  if(!displayCandidates.length){
     el('candidatesList').innerHTML='';
   }else{
     el('candidatesList').innerHTML=visibleCandidates.map(([i,a])=>{
@@ -1789,7 +1843,15 @@ function renderCands(){
     </div>`;
     }).join('');
   }
-  const remaining=Math.max(filtered.length-visibleCount,0);
+  // 記事選択後は、感想スタイルを投稿文生成ボタンの直上に表示
+  const opPanel=el('opinionPanel');
+  if(selectedIdx>=0){
+    el('selectedOpinionSlot').appendChild(opPanel);
+    opPanel.style.display='block';
+  }else{
+    opPanel.style.display='none';
+  }
+  const remaining=Math.max(displayCandidates.length-visibleCount,0);
   el('moreBtn').style.display=remaining>0?'block':'none';
   el('moreBtn').textContent=`もっと見る（残り${remaining}件）`;
 }
@@ -1838,9 +1900,11 @@ function setFetching(on){
   // カテゴリ・言語ボタンをすべてロック／アンロック
   el('catGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
   el('langGroup').querySelectorAll('button').forEach(b=>{ b.disabled=on; b.style.opacity=on?'0.4':''; b.style.pointerEvents=on?'none':''; });
-  el('includeX').disabled=on;
   el('recentDays').disabled=on;
+  el('officialFirst').disabled=on;
 }
+
+el('officialFirst').onchange=()=>renderCands();
 
 el('generateBtn').onclick=async()=>{
   el('errorBox').style.display='none';
@@ -1861,7 +1925,7 @@ el('generateBtn').onclick=async()=>{
   setStatus(true,'複数ソースから候補を取得中...');
   setFetchCancelVisible(true);
   try{
-    const includeX=el('includeX').checked?'1':'0';
+    const includeX='0';
     const days=el('recentDays').value;
     const keyword=el('keywordBox').value.trim();
     candidates=await fetchCandidatesWithRetry(activeCat||'',activeLang,includeX,days,keyword,currentFetchRequestId,currentFetchController);
@@ -1874,7 +1938,7 @@ el('generateBtn').onclick=async()=>{
     currentFetchRequestId=null;
     currentFetchController=null;
     el('candidatesSection').style.display='block';
-    el('opinionPanel').style.display='block';
+    el('opinionPanel').style.display='none';
     renderOpinionStyles();
     renderCands();
     translateCandidatesInBackground();
@@ -2254,10 +2318,15 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_not_cancelled(cancel_event)
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
-                print(f"[候補取得] 取得件数={len(articles)}", flush=True)
+                today_count = sum(
+                    1 for a in articles
+                    if a.get("type") == "official_x" or a.get("ageDays") == 0
+                )
+                print(f"[候補取得] 取得件数={len(articles)} うち今日={today_count}", flush=True)
                 self.send_json(200, {
                     "articles": articles,
                     "count": len(articles),
+                    "today_count": today_count,
                     "category": category,
                     "lang": lang,
                     "days": days,

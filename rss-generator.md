@@ -1,8 +1,8 @@
 # IT記事投稿ジェネレーター仕様
 
-更新日: 2026-06-15  
-リポジトリ: `https://github.com/naokoni24/post-generator.git`  
-ブランチ: `master`  
+更新日: 2026-06-20
+リポジトリ: `https://github.com/naokoni24/post-generator`
+ブランチ: `master`
 対象ファイル: `it_post_generator_rss.py`
 
 ## 運用ルール
@@ -15,7 +15,7 @@
 - 必要に応じてリポジトリ内の仕様書も更新
 - `post-generator.git` の `master` ブランチへpush
 
-push先は必ず `https://github.com/naokoni24/post-generator.git` です。  
+push先は必ず `https://github.com/naokoni24/post-generator` です。
 公式HP用の `tail_tech_hp.git` にはpushしません。
 
 ## 概要
@@ -79,6 +79,9 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
   - 取得中だけ `キャンセル` ボタンを表示
   - クリックするとブラウザ側の取得を中断
   - 同時にサーバー側へ `/api/cancel` を送り、該当 `request_id` の取得処理を停止
+- 感想スタイル
+  - 記事選択後、画面下部の `投稿文を生成` ボタン直上に表示
+  - 選択した記事に対する投稿生成時だけ利用可能
 
 ### 候補表示
 
@@ -120,13 +123,15 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 主な国内ソース:
 
-- ITmedia
+- ITmedia（AI、Enterprise、NEWS、ビジネス、セキュリティ）
 - CNET Japan
 - Publickey
 - はてなブックマーク IT
 - AINOW
 - INTERNET Watch
 - PC Watch
+- ケータイ Watch
+- クラウド Watch
 - CodeZine
 - Zenn
 - Qiita 人気記事
@@ -141,26 +146,40 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - Google DeepMind Blog
 - Hugging Face Blog
 - Google AI Blog
+- Google Research Blog
 - Meta Engineering Blog
-- TechCrunch
-- VentureBeat
-- WIRED
+- TechCrunch（AI、Startups、Enterprise）
+- VentureBeat（AI、Enterprise）
+- WIRED AI
 - MIT Technology Review
-- Ars Technica
+- Ars Technica（Tech、Gadgets）
+- The Decoder（AI特化、高頻度）
+- AI News（AI特化、高頻度）
 - AWS Blog
 - The New Stack
-- The Hacker News
-- Krebs on Security
-- Dark Reading
-- Help Net Security
-- GitHub Blog
-- Stack Overflow Blog
-- Smashing Magazine
-- Product Hunt
+- InfoQ（クラウド・DevOps、高頻度）
+- DevOps.com（高頻度）
+- SD Times
 - Kubernetes Blog
 - Docker Blog
 - CNCF Blog
 - HashiCorp Blog
+- The Hacker News
+- Krebs on Security
+- Dark Reading
+- SANS Internet Storm Center
+- Help Net Security
+- BleepingComputer（高頻度）
+- Security Affairs
+- GitHub Blog
+- Stack Overflow Blog
+- Smashing Magazine
+- CSS-Tricks
+- Hacker News
+- Product Hunt
+- Lifehacker
+- How-To Geek（高頻度）
+- MakeUseOf（高頻度）
 - Sifted
 - EU-Startups
 - Tech.eu
@@ -168,47 +187,48 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - CIO Dive
 - InformationWeek
 - VentureBeat Enterprise
+- ZDNet（高頻度）
+- TechRepublic（高頻度）
 - Engadget
 - The Verge
+- Gizmodo
+- Tom's Hardware
+- arxiv AI（cs.AI）
+- arxiv ML（cs.LG）
 
 ### GitHub Releases
 
 カテゴリごとに主要プロジェクトのGitHub Releases Atomフィードを取得します。
 
-例:
+カテゴリごとの設定（現在）:
 
-- `openai/openai-python`
-- `huggingface/transformers`
-- `langchain-ai/langchain`
-- `aws/aws-cdk`
-- `cloudflare/workers-sdk`
-- `aquasecurity/trivy`
-- `vercel/next.js`
-- `nodejs/node`
-- `microsoft/TypeScript`
-- `facebook/react`
-- `obsidianmd/obsidian-releases`
-- `microsoft/vscode`
-- `n8n-io/n8n`
+| カテゴリ | リポジトリ |
+| --- | --- |
+| AI・機械学習 | openai/openai-python、huggingface/transformers、langchain-ai/langchain |
+| クラウド・AWS | aws/aws-cdk、aws/aws-cli、cloudflare/workers-sdk |
+| セキュリティ | ossf/scorecard、aquasecurity/trivy、owasp-dep-scan/dep-scan |
+| 開発 | vercel/next.js、nodejs/node、microsoft/TypeScript、facebook/react |
+| スタートアップ | vercel/next.js、supabase/supabase、stripe/stripe-node |
+| 便利ツール・Tips | Raycast Changelog、obsidianmd/obsidian-releases、microsoft/vscode |
+| ガジェット・ハードウェア | raspberrypi/firmware、arduino/Arduino |
+| ビジネス・DX | microsoft/PowerToys、n8n-io/n8n |
 
 ### Docs更新 / 公式Blog
 
 公式Blog、Changelog、Release Notes系のフィードを取得します。
 
-例:
+カテゴリごとの設定（現在）:
 
-- OpenAI News / Docs
-- Google Developers Blog
-- AWS What's New
-- Cloudflare Blog
-- Google Cloud Release Notes
-- GitHub Changelog
-- Vercel Changelog
-- Chrome Developers Blog
-- Y Combinator Blog
-- Stripe Blog
-- Google Workspace Updates
-- Apple Developer Releases
+| カテゴリ | フィード |
+| --- | --- |
+| AI・機械学習 | OpenAI News / Docs、Google Developers Blog |
+| クラウド・AWS | AWS What's New、Cloudflare Blog、Google Cloud Release Notes |
+| セキュリティ | Cloudflare Security Blog |
+| 開発 | GitHub Changelog、Vercel Changelog、Chrome Developers Blog |
+| スタートアップ | Y Combinator Blog、Stripe Blog |
+| 便利ツール・Tips | GitHub Changelog、Chrome Developers Blog、Google Workspace Updates |
+| ガジェット・ハードウェア | Apple Developer Releases |
+| ビジネス・DX | （現在未設定） |
 
 ### 公式X
 
@@ -216,22 +236,18 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 公式XはX検索URLを候補として出します。アプリ側でXの投稿本文を直接スクレイピングする構成ではありません。
 
-例:
+カテゴリごとにアカウントを設定しています（現在）:
 
-- OpenAI
-- Anthropic
-- Google DeepMind
-- AWS
-- Azure
-- Google Cloud
-- Microsoft Threat Intelligence
-- CISA
-- GitHub
-- Vercel
-- Node.js
-- Product Hunt
-- Raycast
-- Obsidian
+| カテゴリ | アカウント |
+| --- | --- |
+| AI・機械学習 | @OpenAI、@AnthropicAI、@GoogleDeepMind |
+| クラウド・AWS | @awscloud、@Azure、@googlecloud |
+| セキュリティ | @msftsecintel、@CISAgov、@TheHackersNews |
+| 開発 | @github、@vercel、@nodejs |
+| スタートアップ | @ycombinator、@stripe、@supabase |
+| 便利ツール・Tips | @ProductHunt、@raycastapp、@obsdmd |
+| ガジェット・ハードウェア | @verge、@engadget |
+| ビジネス・DX | @Forbes、@MicrosoftTeams |
 
 ## 信頼度スコア
 
@@ -242,6 +258,16 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 | 公式Blog | 90 |
 | 公式X | 85 |
 | RSSニュース | 70 |
+
+## 取得上限（type_caps）
+
+| ソース種別 | 上限 |
+| --- | ---: |
+| GitHub Releases | 3 |
+| Docs更新 | 3 |
+| 公式Blog | 10 |
+| 公式X | 2（オフ時は0） |
+| RSSニュース | 上限なし（ソース分散で制御） |
 
 ## 取得先モード
 
@@ -257,7 +283,7 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 ### 注意
 
-国内モードでは海外ソースを混ぜないため、キーワードによっては20件に届かない場合があります。  
+国内モードでは海外ソースを混ぜないため、キーワードによっては20件に届かない場合があります。
 例: 国内ソースだけで `AWS` を検索した場合、海外より結果が少なくなることがあります。
 
 ## 候補取得ロジック
@@ -281,8 +307,9 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 ただし並び順は新しい順なので、今日の記事が先に出ます。
 
-海外カテゴリ検索では鮮度を優先し、自動補完は最大3日以内までに制限します。
-`1週間以内` を明示的に選んだ場合のみ、7日以内の記事を候補に含めます。
+海外（`en`）カテゴリ検索では鮮度を優先し、自動補完は最大3日以内までに制限します。
+国内（`jp`）カテゴリ検索は自動補完の上限が7日以内です。
+`1週間以内` を明示的に選んだ場合は、国内・海外ともに7日以内の記事を候補に含めます。
 
 ### キーワード検索
 
@@ -338,7 +365,7 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - ガジェット・ハードウェア
 - ビジネス・DX
 
-専門性が高い公式Blog、GitHub Releases、Docs更新は基本的にそのまま採用します。  
+専門性が高い公式Blog、GitHub Releases、Docs更新は基本的にそのまま採用します。
 `はてブ IT`、`Publickey`、`ITmedia Enterprise`、`The New Stack`、`Lifehacker`、`Gizmodo` など広めのソースだけ、カテゴリ関連キーワードで絞ります。
 
 また、RSS側に未来日付の記事が含まれる場合は候補から除外します。
@@ -373,8 +400,23 @@ APIキーが未設定の場合、翻訳は実行されません。
 - 記事URL
 - 記事本文
 - 選択した感想スタイル
-- ハッシュタグ
+- ハッシュタグ（自動生成）
 - Xの280文字制限
+
+### ハッシュタグ自動生成
+
+記事選択後、投稿文生成の前に記事内容に合ったハッシュタグを自動生成します。
+
+- 重要度順に最大3つ
+- Claude APIで記事タイトルと本文から生成
+- 日本語または一般的な英語技術用語（例: `#生成AI`、`#LLM`、`#OpenAI`）
+- 生成後は手動編集可能
+
+### 文字数オーバー時の処理
+
+1. ハッシュタグを後ろから1つずつ削除して280文字以内に収める
+2. それでもオーバーなら Claude API で本文を自動短縮
+3. 手動短縮ボタン（✂️ 自動短縮）は常時表示可能
 
 X文字数カウントは以下のルールです。
 
@@ -382,7 +424,7 @@ X文字数カウントは以下のルールです。
 - 基本ラテン文字など: 1文字扱い
 - URL: 23文字扱い
 
-280文字を超えた場合は自動短縮ボタンを表示します。
+280文字を超えた場合は自動短縮ボタン（✂️ 自動短縮）が表示されます。
 
 ## APIエンドポイント
 
@@ -451,7 +493,7 @@ X文字数カウントは以下のルールです。
 
 - キーワードなし: 最大12並列
 - キーワードのみ: 最大30並列
-- 翻訳: 最大6バッチ並列
+- 翻訳: バッチサイズ5件、最大6バッチ並列
 - サーバー: `ThreadingHTTPServer` により、取得中でもキャンセルAPIを受け付ける
 
 ## 認証仕様
@@ -491,7 +533,7 @@ RenderでのWeb運用を想定しています。
 - 自動短縮
 - タグ生成
 
-1回あたりの費用は記事本文の長さ、翻訳件数、再生成回数により変動します。  
+1回あたりの費用は記事本文の長さ、翻訳件数、再生成回数により変動します。
 現在は低コストモデル `claude-haiku-4-5` を使う設計です。
 
 ## 既知の仕様・注意点
@@ -526,5 +568,29 @@ RenderでのWeb運用を想定しています。
 - このObsidianノートを毎回読み込み、作業後に更新する運用ルールを追加
 - 候補取得中にキャンセルできるUI/APIを追加
 - サーバーを `ThreadingHTTPServer` 化し、取得中でもキャンセルAPIを受け付けるように変更
-- 海外カテゴリ検索の自動補完を最大3日以内に制限し、古い記事が出すぎないように変更
+- 海外カテゴリ検索の自動補完を最大3日以内に制限し、古い記事が出すぎないように変更（国内は最大7日）
 - カテゴリ検索の選定ロジックを当日記事優先に変更。当日記事がある場合は、同一ソース上限より鮮度を優先
+- 公式XアカウントをカテゴリごとのX検索URLとして整理
+- ハッシュタグ自動生成を投稿文生成フローに追加（3つ、重要度順）
+- 文字数オーバー時はハッシュタグ削除→本文短縮の2段階処理に変更
+- GitHub Releases / Docs更新のカテゴリ別ソースを整備
+- arxiv（AI/ML）、SANS Internet Storm Center、CSS-Tricks、Tom's Hardwareなどのソースを追加
+- 国内ソースにケータイ Watch、クラウド Watch を追加
+- 今日の記事が少ない問題対策: カテゴリごとに高頻度海外ニュースフィードを追加（The Decoder/AI News/BleepingComputer/InfoQ/SD Times/DevOps.com/How-To Geek/MakeUseOf/ZDNet/TechRepublic など）
+- 幅広いソース（How-To Geek、MakeUseOf、ZDNet、TechRepublic 等）をカテゴリ関連度フィルタ対象に追加し、カテゴリ外記事の混入を防止
+- 公式Blog取得上限を8件→10件に引き上げ
+- 候補取得結果のinfo barに「今日○件」を表示（補完発動時のみ表示）
+- `/api/rss` レスポンスに `today_count` フィールドを追加
+- fetch_rss のキャッシュバグ修正（limit>=キャッシュ件数で毎回再通信していた問題を解消）
+- RSSパース時の[:limit]上限を削除し、全件キャッシュするよう修正
+- タイムアウトしたフィード名をサーバーログに出力（`[RSS] タイムアウト(N件): [...]`）
+- タイムアウト常発フィードを削除（The Decoder, AI News, OpenAI News/Docs, Google Developers Blog, huggingface/transformers, langchain GitHub Releases, arxiv AI/ML）
+- RSSフェッチ予算をRender（米国サーバー）向けに拡大（fast: 1.2s→4.0s、max: 2.6s→8.0s）
+- Renderのデプロイブランチをmaster→mainに修正
+- AIカテゴリに公式ブログ追加（Anthropic Blog、Google Gemini Blog、Microsoft AI Blog、NVIDIA Blog、Amazon Science、Apple ML Research、Mistral AI Blog）
+- 「公式優先」チェックボックスを追加（チェック時にofficial_blog/github_release/docs_updateを上位表示）
+- 「公式Xも見る」チェックボックスを削除（include_xは常にオフ）
+- info barの「追加取得あり」表示を削除
+- 検索中は「公式優先」チェックボックスを無効化
+- 記事選択時に感想スタイルパネルを自動表示
+- 記事選択後の感想スタイルを、投稿文を生成ボタンの直上へ移動

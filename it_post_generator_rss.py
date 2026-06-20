@@ -152,6 +152,9 @@ RSS_FEEDS = {
         {"url": "https://www.infoq.com/feed/", "source": "InfoQ"},
         {"url": "https://devops.com/feed/", "source": "DevOps.com"},
         {"url": "https://sdtimes.com/feed/", "source": "SD Times"},
+        # 当日のクラウド更新を補う高頻度ニュース
+        {"url": "https://news.google.com/rss/search?q=%28AWS+OR+%22Amazon+Web+Services%22+OR+Azure+OR+%22Google+Cloud%22+OR+%22cloud+infrastructure%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Cloud Platforms"},
+        {"url": "https://news.google.com/rss/search?q=%28Kubernetes+OR+Docker+OR+Terraform+OR+DevOps+OR+%22cloud+native%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News DevOps"},
     ],
     "セキュリティ": [
         # 国内

@@ -722,7 +722,11 @@ def merge_result_cache(cache_key, articles, limit, days_limit):
             if not url or url in seen:
                 continue
             age_days = article_age_days(article)
-            if article.get("type") != "official_x" and (age_days is None or age_days < 0 or age_days > days_limit):
+            if (
+                article.get("type") == "official_x" and days_limit != 0
+            ):
+                pass
+            elif age_days is None or age_days < 0 or age_days > days_limit:
                 continue
             restored = dict(article)
             restored["ageDays"] = age_days
@@ -1327,10 +1331,17 @@ def get_articles(
 
     if keyword:
         kw = keyword.strip().lower()
-        KEYWORD_MAX_AGE_DAYS = 90 if not category else 30
+        # 「今日」指定ではキーワード検索でも当日公開の記事だけに限定する。
+        # 通常のキーワード検索は従来どおり広めの期間から一致記事を探す。
+        keyword_max_age_days = 0 if days_limit == 0 else (90 if not category else 30)
         pool = [
             a for a in unique
-            if a.get("type") == "official_x" or (a.get("ageDays") is not None and 0 <= a["ageDays"] <= KEYWORD_MAX_AGE_DAYS)
+            if (
+                a.get("type") == "official_x" and days_limit != 0
+            ) or (
+                a.get("ageDays") is not None
+                and 0 <= a["ageDays"] <= keyword_max_age_days
+            )
         ]
         # 英語タイトルのまま日本語キーワードに一致しない記事も拾えるよう、
         # 候補プールを先に翻訳してからキーワード一致を判定する
@@ -1351,7 +1362,11 @@ def get_articles(
 
     recent = [
         a for a in unique
-        if a.get("type") == "official_x" or (a.get("ageDays") is not None and 0 <= a["ageDays"] <= days_limit)
+        if (
+            a.get("type") == "official_x" and days_limit != 0
+        ) or (
+            a.get("ageDays") is not None and 0 <= a["ageDays"] <= days_limit
+        )
     ]
     unique = recent
     unique.sort(key=_article_pick_key)
@@ -1389,7 +1404,7 @@ def get_articles(
 
     fresh_pool = [
         article for article in unique
-        if article.get("type") == "official_x"
+        if (article.get("type") == "official_x" and days_limit != 0)
         or article.get("ageDays") is None
         or (0 <= article.get("ageDays") <= days_limit)
     ]
@@ -2299,7 +2314,9 @@ class Handler(BaseHTTPRequestHandler):
                     _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
-                if not keyword and category and len(articles) < 20 and days < 3:
+                # 「今日」は当日の記事だけを返す。件数不足でも過去記事への
+                # 自動補完は行わず、同じ当日条件での追加取得だけに留める。
+                if not keyword and category and days > 0 and len(articles) < 20 and days < 3:
                     expanded_days = 3
                     print(f"[候補取得] {len(articles)}件のため3日以内で補完します", flush=True)
                     _RSS_FAIL_CACHE.clear()

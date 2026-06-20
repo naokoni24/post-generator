@@ -15,11 +15,12 @@ from email.utils import parsedate_to_datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.request import urlopen, Request, HTTPRedirectHandler
 from urllib.error import URLError, HTTPError
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, urlencode
 import html
 import re
 import hmac
 import hashlib
+import unicodedata
 try:
     from zoneinfo import ZoneInfo
     LOCAL_TZ = ZoneInfo("Asia/Tokyo")
@@ -122,14 +123,17 @@ RSS_FEEDS = {
         {"url": "https://www.wired.com/feed/tag/ai/latest/rss", "source": "WIRED AI"},
         {"url": "https://www.technologyreview.com/feed/", "source": "MIT Technology Review"},
         {"url": "https://feeds.arstechnica.com/arstechnica/technology-lab", "source": "Ars Technica"},
-        # AI企業公式Blog（追加）
-        {"url": "https://www.anthropic.com/rss.xml", "source": "Anthropic Blog"},
+        # AI特化ニュース（当日記事の補完）
+        {"url": "https://www.marktechpost.com/feed/", "source": "MarkTechPost"},
+        {"url": "https://www.infoworld.com/feed/", "source": "InfoWorld"},
+        {"url": "https://thenewstack.io/feed/", "source": "The New Stack"},
+        {"url": "https://the-decoder.com/feed/", "source": "The Decoder"},
+        {"url": "https://news.google.com/rss/search?q=%28OpenAI+OR+Anthropic+OR+Google+DeepMind+OR+%22AI+model%22+OR+%22generative+AI%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News AI Models"},
+        {"url": "https://news.google.com/rss/search?q=%28%22AI+agent%22+OR+%22AI+coding%22+OR+%22large+language+model%22+OR+LLM%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News AI Agents"},
+        # 取得確認済みのAI企業公式Blog
         {"url": "https://blog.google/products/gemini/rss/", "source": "Google Gemini Blog"},
-        {"url": "https://blogs.microsoft.com/ai/feed/", "source": "Microsoft AI Blog"},
         {"url": "https://blogs.nvidia.com/feed/", "source": "NVIDIA Blog"},
         {"url": "https://www.amazon.science/index.rss", "source": "Amazon Science"},
-        {"url": "https://machinelearning.apple.com/rss.xml", "source": "Apple ML Research"},
-        {"url": "https://mistral.ai/news/rss", "source": "Mistral AI Blog"},
     ],
     "クラウド・AWS": [
         # 国内
@@ -148,6 +152,9 @@ RSS_FEEDS = {
         {"url": "https://www.infoq.com/feed/", "source": "InfoQ"},
         {"url": "https://devops.com/feed/", "source": "DevOps.com"},
         {"url": "https://sdtimes.com/feed/", "source": "SD Times"},
+        # 当日のクラウド更新を補う高頻度ニュース
+        {"url": "https://news.google.com/rss/search?q=%28AWS+OR+%22Amazon+Web+Services%22+OR+Azure+OR+%22Google+Cloud%22+OR+%22cloud+infrastructure%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Cloud Platforms"},
+        {"url": "https://news.google.com/rss/search?q=%28Kubernetes+OR+Docker+OR+Terraform+OR+DevOps+OR+%22cloud+native%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News DevOps"},
     ],
     "セキュリティ": [
         # 国内
@@ -161,6 +168,8 @@ RSS_FEEDS = {
         {"url": "https://www.helpnetsecurity.com/feed/", "source": "Help Net Security"},
         {"url": "https://www.bleepingcomputer.com/feed/", "source": "BleepingComputer"},
         {"url": "https://securityaffairs.com/feed", "source": "Security Affairs"},
+        # 当日の脅威・脆弱性ニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28cybersecurity+OR+vulnerability+OR+ransomware+OR+%22data+breach%22+OR+%22zero-day%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Security"},
     ],
     "開発": [
         # 国内
@@ -176,6 +185,8 @@ RSS_FEEDS = {
         {"url": "https://www.smashingmagazine.com/feed/", "source": "Smashing Magazine"},
         {"url": "https://css-tricks.com/feed/", "source": "CSS-Tricks"},
         {"url": "https://news.ycombinator.com/rss", "source": "Hacker News"},
+        # 当日の開発者向けニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28%22software+development%22+OR+programming+OR+GitHub+OR+%22developer+tools%22+OR+%22open+source%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Development"},
     ],
     "スタートアップ": [
         # 国内
@@ -184,6 +195,8 @@ RSS_FEEDS = {
         # 海外
         {"url": "https://techcrunch.com/category/startups/feed/", "source": "TechCrunch Startups"},
         {"url": "https://venturebeat.com/feed/", "source": "VentureBeat"},
+        # 当日の資金調達・スタートアップニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28startup+OR+funding+OR+%22venture+capital%22+OR+%22seed+round%22+OR+%22series+A%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Startups"},
         {"url": "https://techcrunch.com/feed/", "source": "TechCrunch"},
         {"url": "https://sifted.eu/feed", "source": "Sifted"},
         {"url": "https://www.eu-startups.com/feed/", "source": "EU-Startups"},
@@ -201,6 +214,10 @@ RSS_FEEDS = {
         {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
         {"url": "https://www.howtogeek.com/feed/", "source": "How-To Geek"},
         {"url": "https://www.makeuseof.com/feed/", "source": "MakeUseOf"},
+        # 当日のアプリ・業務効率化ニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28%22productivity+app%22+OR+%22software+tool%22+OR+%22developer+tool%22+OR+%22AI+tool%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Tools"},
+        {"url": "https://news.google.com/rss/search?q=%28%22app+update%22+OR+%22software+update%22+OR+%22browser+extension%22+OR+%22productivity+software%22+OR+automation%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News App Updates"},
+        {"url": "https://news.google.com/rss/search?q=%28%22iPhone+app%22+OR+%22Android+app%22+OR+%22Windows+app%22+OR+%22Mac+app%22+OR+%22Chrome+extension%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Apps"},
     ],
     "ガジェット・ハードウェア": [
         # 国内
@@ -213,6 +230,8 @@ RSS_FEEDS = {
         {"url": "https://feeds.arstechnica.com/arstechnica/gadgets", "source": "Ars Technica Gadgets"},
         {"url": "https://gizmodo.com/rss", "source": "Gizmodo"},
         {"url": "https://www.tomshardware.com/feeds/all", "source": "Tom's Hardware"},
+        # 当日の製品・ハードウェアニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28smartphone+OR+laptop+OR+gadget+OR+hardware+OR+%22consumer+technology%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Hardware"},
     ],
     "ビジネス・DX": [
         # 国内
@@ -229,6 +248,8 @@ RSS_FEEDS = {
         {"url": "https://venturebeat.com/category/enterprise/feed", "source": "VentureBeat Enterprise"},
         {"url": "https://www.zdnet.com/news/rss.xml", "source": "ZDNet"},
         {"url": "https://www.techrepublic.com/rss/", "source": "TechRepublic"},
+        # 当日のDX・エンタープライズニュースを補う高頻度フィード
+        {"url": "https://news.google.com/rss/search?q=%28%22digital+transformation%22+OR+%22enterprise+software%22+OR+SaaS+OR+%22business+technology%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Business Tech"},
     ],
 }
 
@@ -370,13 +391,9 @@ OFFICIAL_BLOG_SOURCES = {
     "Supabase Blog",
     "Y Combinator Blog",
     # AI企業公式Blog
-    "Anthropic Blog",
     "Google Gemini Blog",
-    "Microsoft AI Blog",
     "NVIDIA Blog",
     "Amazon Science",
-    "Apple ML Research",
-    "Mistral AI Blog",
     "OpenAI Blog",
     "OpenAI News / Docs",
     "Google DeepMind Blog",
@@ -384,7 +401,6 @@ OFFICIAL_BLOG_SOURCES = {
     "Google AI Blog",
     "Google Research Blog",
     "Meta Engineering Blog",
-    "Microsoft AI Blog",
     "Kubernetes Blog",
     "Docker Blog",
     "CNCF Blog",
@@ -484,6 +500,8 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "CNET Japan",
         "Ars Technica",
         "MIT Technology Review",
+        "InfoWorld",
+        "The New Stack",
     },
     "クラウド・AWS": {
         "Hacker News",
@@ -627,6 +645,66 @@ def build_article(title, link, source, date, article_type=None, summary=""):
         "trustScore": TRUST_SCORES[article_type],
     }
 
+def article_identity_keys(article):
+    """同一記事のURL違い・同一タイトル配信を判定するためのキーを返す。"""
+    keys = []
+    url = (article.get("url") or "").strip()
+    if url:
+        try:
+            parts = urlsplit(url)
+            # utm等の計測パラメータやフラグメントは記事の同一性に含めない。
+            query = urlencode([
+                (key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True)
+                if not key.lower().startswith(("utm_", "fbclid", "gclid"))
+            ], doseq=True)
+            url = urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), query, ""))
+        except ValueError:
+            pass
+        keys.append(("url", url))
+
+    title = unicodedata.normalize("NFKC", strip_tags(article.get("title", ""))).lower()
+    title = re.sub(r"[^\w\u3040-\u30ff\u3400-\u9fff]+", "", title)
+    # 短い定型見出し（例: "速報"）だけでは重複扱いにしない。
+    if len(title) >= 12:
+        keys.append(("title", title))
+    return keys
+
+_STORY_STOP_WORDS = {
+    "a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "of", "on",
+    "or", "the", "to", "with", "after", "before", "over", "new", "says", "will",
+}
+
+def articles_describe_same_story(first, second):
+    """Google News内で見出し表現が異なる同一ニュースを検出する。"""
+    if not (
+        first.get("type") == "rss_news"
+        and second.get("type") == "rss_news"
+        and first.get("source", "").startswith("Google News ")
+        and second.get("source", "").startswith("Google News ")
+    ):
+        return False
+
+    def _title_tokens(article):
+        # 翻訳済みキャッシュと比較する場合も、原題を優先して同じ基準で判定する。
+        title = article.get("title_en") or article.get("title", "")
+        words = re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKC", title).lower())
+        return [word for word in words if len(word) >= 3 and word not in _STORY_STOP_WORDS]
+
+    first_tokens = _title_tokens(first)
+    second_tokens = _title_tokens(second)
+    if not first_tokens or not second_tokens:
+        return False
+    shared = set(first_tokens) & set(second_tokens)
+    overlap = len(shared) / min(len(set(first_tokens)), len(set(second_tokens)))
+    first_bigrams = set(zip(first_tokens, first_tokens[1:]))
+    second_bigrams = set(zip(second_tokens, second_tokens[1:]))
+    # 固有名詞4語以上、または人名等の連続2語を含む3語以上が一致する場合に統合する。
+    return (
+        len(shared) >= 4 and overlap >= 0.5
+    ) or (
+        len(shared) >= 3 and overlap >= 0.45 and bool(first_bigrams & second_bigrams)
+    )
+
 def fetch_article_body(url, char_limit=1500):
     """記事URLから本文テキストを取得して返す"""
     try:
@@ -712,22 +790,30 @@ def merge_result_cache(cache_key, articles, limit, days_limit):
     now = _time.time()
     cached = _RESULT_CACHE.get(cache_key)
     merged = [dict(article) for article in articles]
-    seen = {article.get("url") for article in merged if article.get("url")}
+    seen = {key for article in merged for key in article_identity_keys(article)}
 
     if cached and now - cached[0] < RESULT_CACHE_TTL:
         for article in cached[1]:
             if len(merged) >= limit:
                 break
-            url = article.get("url")
-            if not url or url in seen:
+            identity_keys = article_identity_keys(article)
+            if (
+                not identity_keys
+                or any(key in seen for key in identity_keys)
+                or any(articles_describe_same_story(article, existing) for existing in merged)
+            ):
                 continue
             age_days = article_age_days(article)
-            if article.get("type") != "official_x" and (age_days is None or age_days < 0 or age_days > days_limit):
+            if (
+                article.get("type") == "official_x" and days_limit != 0
+            ):
+                pass
+            elif age_days is None or age_days < 0 or age_days > days_limit:
                 continue
             restored = dict(article)
             restored["ageDays"] = age_days
             merged.append(restored)
-            seen.add(url)
+            seen.update(identity_keys)
 
     _RESULT_CACHE[cache_key] = (now, [dict(article) for article in merged[:limit]])
     return merged[:limit]
@@ -1289,13 +1375,10 @@ def get_articles(
     else:
         # 海外: 国内ソースは候補に含めない
         all_items = special_items + other_items
-    seen = set()
     unique = []
     for a in all_items:
-        if a["url"] not in seen:
-            seen.add(a["url"])
-            a["ageDays"] = article_age_days(a)
-            unique.append(a)
+        a["ageDays"] = article_age_days(a)
+        unique.append(a)
     if category and not keyword:
         before_filter = len(unique)
         unique = [a for a in unique if is_category_relevant(a, category)]
@@ -1324,13 +1407,36 @@ def get_articles(
         )
 
     unique.sort(key=_article_sort_key)
+    seen = set()
+    deduplicated = []
+    for article in unique:
+        identity_keys = article_identity_keys(article)
+        if (
+            not identity_keys
+            or any(key in seen for key in identity_keys)
+            or any(articles_describe_same_story(article, existing) for existing in deduplicated)
+        ):
+            continue
+        seen.update(identity_keys)
+        deduplicated.append(article)
+    duplicate_count = len(unique) - len(deduplicated)
+    if duplicate_count:
+        print(f"[重複除外] 同一記事の候補を{duplicate_count}件除外", flush=True)
+    unique = deduplicated
 
     if keyword:
         kw = keyword.strip().lower()
-        KEYWORD_MAX_AGE_DAYS = 90 if not category else 30
+        # 「今日」指定ではキーワード検索でも当日公開の記事だけに限定する。
+        # 通常のキーワード検索は従来どおり広めの期間から一致記事を探す。
+        keyword_max_age_days = 0 if days_limit == 0 else (90 if not category else 30)
         pool = [
             a for a in unique
-            if a.get("type") == "official_x" or (a.get("ageDays") is not None and 0 <= a["ageDays"] <= KEYWORD_MAX_AGE_DAYS)
+            if (
+                a.get("type") == "official_x" and days_limit != 0
+            ) or (
+                a.get("ageDays") is not None
+                and 0 <= a["ageDays"] <= keyword_max_age_days
+            )
         ]
         # 英語タイトルのまま日本語キーワードに一致しない記事も拾えるよう、
         # 候補プールを先に翻訳してからキーワード一致を判定する
@@ -1351,7 +1457,11 @@ def get_articles(
 
     recent = [
         a for a in unique
-        if a.get("type") == "official_x" or (a.get("ageDays") is not None and 0 <= a["ageDays"] <= days_limit)
+        if (
+            a.get("type") == "official_x" and days_limit != 0
+        ) or (
+            a.get("ageDays") is not None and 0 <= a["ageDays"] <= days_limit
+        )
     ]
     unique = recent
     unique.sort(key=_article_pick_key)
@@ -1389,7 +1499,7 @@ def get_articles(
 
     fresh_pool = [
         article for article in unique
-        if article.get("type") == "official_x"
+        if (article.get("type") == "official_x" and days_limit != 0)
         or article.get("ageDays") is None
         or (0 <= article.get("ageDays") <= days_limit)
     ]
@@ -1590,6 +1700,7 @@ HTML = r"""<!DOCTYPE html>
   <div class="sticky-bar" id="stickyBar">
     <div class="sticky-bar-inner">
       <span class="sticky-article-title" id="stickyTitle">記事を選択してください</span>
+      <div id="selectedOpinionSlot"></div>
       <button class="sticky-gen-btn" id="selectBtn" disabled>✏️ 投稿文を生成</button>
     </div>
   </div>
@@ -1805,17 +1916,17 @@ function renderCands(){
   }
   const OFFICIAL_TYPES=new Set(['official_blog','github_release','docs_update']);
   const officialFirst=el('officialFirst')&&el('officialFirst').checked;
-  // [origIdx, article] のペアでソートし、元インデックスを保持
-  let displayCandidates=candidates.map((a,i)=>[i,a]);
+  let displayCandidates=[...candidates];
   if(officialFirst){
-    displayCandidates.sort(([,a],[,b])=>{
+    displayCandidates.sort((a,b)=>{
       const aOff=OFFICIAL_TYPES.has(a.type)?0:1;
       const bOff=OFFICIAL_TYPES.has(b.type)?0:1;
       return aOff-bOff;
     });
   }
-  const visibleCandidates=displayCandidates.slice(0, visibleCount);
-  if(!displayCandidates.length){
+  const filtered=displayCandidates.map((a,i)=>[i,a]);
+  const visibleCandidates=filtered.slice(0, visibleCount);
+  if(!filtered.length){
     el('candidatesList').innerHTML='';
   }else{
     el('candidatesList').innerHTML=visibleCandidates.map(([i,a])=>{
@@ -1851,7 +1962,7 @@ function renderCands(){
   }else{
     opPanel.style.display='none';
   }
-  const remaining=Math.max(displayCandidates.length-visibleCount,0);
+  const remaining=Math.max(filtered.length-visibleCount,0);
   el('moreBtn').style.display=remaining>0?'block':'none';
   el('moreBtn').textContent=`もっと見る（残り${remaining}件）`;
 }
@@ -2298,13 +2409,15 @@ class Handler(BaseHTTPRequestHandler):
                     _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
-                if not keyword and category and len(articles) < 20 and days < 3:
+                # 「今日」は当日の記事だけを返す。件数不足でも過去記事への
+                # 自動補完は行わず、同じ当日条件での追加取得だけに留める。
+                if not keyword and category and days > 0 and len(articles) < 20 and days < 3:
                     expanded_days = 3
                     print(f"[候補取得] {len(articles)}件のため3日以内で補完します", flush=True)
                     _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(expanded_days, full=True)
-                if not keyword and category and len(articles) < 20 and expanded_days < auto_expand_max_days:
+                if not keyword and category and days > 0 and len(articles) < 20 and expanded_days < auto_expand_max_days:
                     expanded_days = auto_expand_max_days
                     print(f"[候補取得] {len(articles)}件のため{auto_expand_max_days}日以内で補完します", flush=True)
                     _RSS_FAIL_CACHE.clear()
@@ -2318,6 +2431,13 @@ class Handler(BaseHTTPRequestHandler):
                     ensure_not_cancelled(cancel_event)
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
+                # 防御的に最終レスポンスでも「今日」の条件を適用する。
+                # 補完・キャッシュなど将来の取得経路が増えても、前日以前の記事を返さない。
+                if days == 0:
+                    before_today_filter = len(articles)
+                    articles = [a for a in articles if a.get("ageDays") == 0]
+                    if len(articles) != before_today_filter:
+                        print(f"[候補取得] 今日以外の記事を{before_today_filter - len(articles)}件除外", flush=True)
                 today_count = sum(
                     1 for a in articles
                     if a.get("type") == "official_x" or a.get("ageDays") == 0

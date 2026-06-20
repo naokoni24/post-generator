@@ -1489,12 +1489,14 @@ HTML = r"""<!DOCTYPE html>
   .cand-check { width: 18px; height: 18px; border-radius: 50%; border: 1px solid #ddd; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; margin-top: 2px; }
   .cand-card.selected .cand-check { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
   .sticky-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #e5e5e5; padding: .75rem 1rem; display: none; z-index: 100; box-shadow: 0 -4px 16px rgba(0,0,0,.08); }
-  .sticky-bar-inner { max-width: 680px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
-  .sticky-article-title { font-size: 13px; color: #555; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sticky-gen-btn { font-size: 14px; padding: 10px 20px; border-radius: 10px; border: none; background: #1a1a1a; color: #fff; cursor: pointer; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
+  .sticky-bar-inner { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+  .sticky-article-title { font-size: 13px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #selectedOpinionSlot:empty { display: none; }
+  #selectedOpinionSlot #opinionPanel { background: transparent !important; border: none !important; padding: 0 !important; margin: 0 !important; }
+  .sticky-gen-btn { font-size: 14px; padding: 10px 20px; border-radius: 10px; border: none; background: #1a1a1a; color: #fff; cursor: pointer; font-weight: 500; width: 100%; }
   .sticky-gen-btn:hover { opacity: .85; }
   .sticky-gen-btn:disabled { opacity: .4; cursor: not-allowed; }
-  body.has-sticky { padding-bottom: 72px; }
+  body.has-sticky { padding-bottom: 210px; }
   .more-btn { font-size: 13px; padding: 8px 14px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; width: 100%; margin: 8px 0 10px; display: none; }
   .more-btn:hover { background: #f5f5f5; }
   .select-btn { font-size: 14px; padding: 9px 18px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; transition: all .15s; margin-bottom: 1.25rem; }
@@ -1588,6 +1590,7 @@ HTML = r"""<!DOCTYPE html>
   <div class="sticky-bar" id="stickyBar">
     <div class="sticky-bar-inner">
       <span class="sticky-article-title" id="stickyTitle">記事を選択してください</span>
+      <div id="selectedOpinionSlot"></div>
       <button class="sticky-gen-btn" id="selectBtn" disabled>✏️ 投稿文を生成</button>
     </div>
   </div>
@@ -1841,6 +1844,14 @@ function renderCands(){
     </div>`;
     }).join('');
   }
+  // 記事選択後は、感想スタイルを投稿文生成ボタンの直上に表示
+  const opPanel=el('opinionPanel');
+  if(selectedIdx>=0){
+    el('selectedOpinionSlot').appendChild(opPanel);
+    opPanel.style.display='block';
+  }else{
+    opPanel.style.display='none';
+  }
   const remaining=Math.max(filtered.length-visibleCount,0);
   el('moreBtn').style.display=remaining>0?'block':'none';
   el('moreBtn').textContent=`もっと見る（残り${remaining}件）`;
@@ -1849,7 +1860,6 @@ function renderCands(){
 function selectCand(i){
   selectedIdx=i;
   el('selectBtn').disabled=false;
-  el('opinionPanel').style.display='block';
   // スティッキーバー更新
   el('stickyBar').style.display='block';
   el('stickyTitle').textContent=candidates[i]?.title||'';

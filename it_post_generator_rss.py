@@ -697,11 +697,11 @@ def articles_describe_same_story(first, second):
     second_is_gnews = second.get("source", "").startswith("Google News ")
 
     if first_is_gnews and second_is_gnews:
-        # Google News同士: 緩め（見出し表現が異なりやすい）
+        # Google News同士: 同一ニュースを複数媒体が異なる見出しで配信するため積極的に統合
         return (
-            len(shared) >= 4 and overlap >= 0.5
+            len(shared) >= 3 and overlap >= 0.4
         ) or (
-            len(shared) >= 3 and overlap >= 0.45 and bool(first_bigrams & second_bigrams)
+            len(shared) >= 2 and overlap >= 0.35 and bool(first_bigrams & second_bigrams)
         )
     else:
         # 異なるRSSソース間: トークンの高一致率で同一記事と判定

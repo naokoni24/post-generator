@@ -675,17 +675,11 @@ _STORY_STOP_WORDS = {
 }
 
 def articles_describe_same_story(first, second):
-    """Google News内で見出し表現が異なる同一ニュースを検出する。"""
-    if not (
-        first.get("type") == "rss_news"
-        and second.get("type") == "rss_news"
-        and first.get("source", "").startswith("Google News ")
-        and second.get("source", "").startswith("Google News ")
-    ):
+    """異なるソースで配信された同一ニュースを検出する。"""
+    if not (first.get("type") == "rss_news" and second.get("type") == "rss_news"):
         return False
 
     def _title_tokens(article):
-        # 翻訳済みキャッシュと比較する場合も、原題を優先して同じ基準で判定する。
         title = article.get("title_en") or article.get("title", "")
         words = re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKC", title).lower())
         return [word for word in words if len(word) >= 3 and word not in _STORY_STOP_WORDS]
@@ -698,12 +692,24 @@ def articles_describe_same_story(first, second):
     overlap = len(shared) / min(len(set(first_tokens)), len(set(second_tokens)))
     first_bigrams = set(zip(first_tokens, first_tokens[1:]))
     second_bigrams = set(zip(second_tokens, second_tokens[1:]))
-    # 固有名詞4語以上、または人名等の連続2語を含む3語以上が一致する場合に統合する。
-    return (
-        len(shared) >= 4 and overlap >= 0.5
-    ) or (
-        len(shared) >= 3 and overlap >= 0.45 and bool(first_bigrams & second_bigrams)
-    )
+
+    first_is_gnews = first.get("source", "").startswith("Google News ")
+    second_is_gnews = second.get("source", "").startswith("Google News ")
+
+    if first_is_gnews and second_is_gnews:
+        # Google News同士: 緩め（見出し表現が異なりやすい）
+        return (
+            len(shared) >= 4 and overlap >= 0.5
+        ) or (
+            len(shared) >= 3 and overlap >= 0.45 and bool(first_bigrams & second_bigrams)
+        )
+    else:
+        # 異なるRSSソース間: トークンの高一致率で同一記事と判定
+        return (
+            len(shared) >= 5 and overlap >= 0.7
+        ) or (
+            len(shared) >= 4 and overlap >= 0.6 and bool(first_bigrams & second_bigrams)
+        )
 
 def fetch_article_body(url, char_limit=1500):
     """記事URLから本文テキストを取得して返す"""

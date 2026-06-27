@@ -2100,32 +2100,6 @@ el('selectBtn').onclick=async()=>{
       ? `記事本文（抜粋）:\n${articleBody}`
       : `RSS概要: ${art.summary||'概要なし'}`;
 
-    // 記事に合ったハッシュタグを自動生成
-    setStatus(true,'ハッシュタグを生成中...');
-    try{
-      const tagSource = articleBody || art.summary || art.title;
-      const tagData = await callProxy([{role:'user',content:`以下のIT記事に最適な日本語ハッシュタグを重要度順に3つだけ提案してください。
-記事タイトル: ${art.title}
-内容: ${tagSource.slice(0,400)}
-ルール:
-- 必ず # から始める
-- 日本語または一般的な英語技術用語（例: #AI #AWS #React）
-- 記事の具体的な内容を最もよく表すタグを優先（汎用すぎる #テック だけにしない）
-- 必ず3つ、JSON配列のみ返す。例: ["#生成AI","#LLM","#OpenAI"]`}]);
-      let tagText = tagData.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,'').trim();
-      const newTags = JSON.parse(tagText);
-      if(Array.isArray(newTags) && newTags.length){
-        // 既存タグを新しいタグで置き換え（重複除去・最大3つ）
-        const seen = new Set();
-        tags = newTags.filter(t=>typeof t==='string'&&t.startsWith('#')).slice(0,3).map(t=>{
-          const cleaned = t.trim().replace(/^#\s+/, '#').replace(/\s+/g, '');
-          if(seen.has(cleaned)) return null;
-          seen.add(cleaned);
-          return {t:cleaned, on:true};
-        }).filter(Boolean);
-      }
-    }catch(e){ console.warn('ハッシュタグ生成失敗', e); }
-
     setStatus(true,'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文+ハッシュタグを117文字以内に収める
     const includeOpinion=el('includeOpinion').checked;
@@ -2165,33 +2139,23 @@ ${contextText}
 - 日本語100文字以内
 - 本文のみ回答`}]);
 
-    // 本文 + ハッシュタグ + URL を組み立て
+    // 本文 + URL を組み立て（ハッシュタグなし）
     const calcLen=(t)=>{const u=t.match(/https?:\/\/[^\s]+/g)||[];return xWeightedLen(t.replace(/https?:\/\/[^\s]+/g,''))+u.length*23;};
     let body = data.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-    const hashStr = getTags() ? ' '+getTags() : '';
     const urlStr  = shareUrl  ? '\n'+shareUrl  : '';
-    let tweet = body + hashStr + urlStr;
-
-    // Step1: オーバーならハッシュタグを後ろから1つずつ削除
-    const hashTags = (hashStr.trim()).split(/\s+/).filter(t=>t.startsWith('#'));
-    let usedTags = [...hashTags];
-    while(calcLen(tweet)>280 && usedTags.length>0){
-      usedTags.pop();
-      tweet = body + (usedTags.length ? ' '+usedTags.join(' ') : '') + urlStr;
-    }
+    let tweet = body + urlStr;
 
     // Step2: それでもオーバーなら Claude で本文を自動短縮
     if(calcLen(tweet)>280){
       setStatus(true,'文字数オーバー。本文を自動短縮中...');
       try{
         const over=calcLen(tweet);
-        const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLとハッシュタグは変えずに本文だけを短くしてください。
+        const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLは変えずに本文だけを短くしてください。
 文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計280以内。
-ハッシュタグ: ${usedTags.join(' ')||'なし'}
 URL: ${shareUrl}
 本文のみ回答してください。\n\n${body}`}]);
         const newBody=shortened.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-        tweet = newBody + (usedTags.length ? ' '+usedTags.join(' ') : '') + urlStr;
+        tweet = newBody + urlStr;
       }catch(e){ console.warn('自動短縮失敗',e); }
     }
     el('resultHeader').innerHTML=`
@@ -2226,7 +2190,7 @@ el('shortenBtn').onclick=async()=>{
   if(calcLen2(cur)<=280)return;
   el('shortenBtn').disabled=true;setStatus(true,'短縮中...');
   try{
-    const data=await callProxy([{role:'user',content:`以下のX投稿文を文字数制限内に短縮してください。ルール: 日本語1文字=2カウント、英数字1文字=1カウント、URL=23カウント固定、合計280以内。ハッシュタグとURLは全て残し自然な日本語で。投稿文のみ回答。\n\n${cur}`}]);
+    const data=await callProxy([{role:'user',content:`以下のX投稿文を文字数制限内に短縮してください。ルール: 日本語1文字=2カウント、英数字1文字=1カウント、URL=23カウント固定、合計280以内。URLは全て残し自然な日本語で。投稿文のみ回答。\n\n${cur}`}]);
     el('tweetBox').innerText=data.text.trim();updateChar();
   }catch(e){showError('短縮失敗: '+e.message);}
   finally{setStatus(false);el('shortenBtn').disabled=false;}

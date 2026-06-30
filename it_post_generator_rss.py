@@ -52,20 +52,30 @@ def build_app_icon():
     except Exception:
         _APP_ICON_CACHE = b""
         return None
+    # 「執筆（ペン）」アイコン: コーラル背景に斜めの白いペン
+    SS = 4  # アンチエイリアス用の拡大率
     size = 180
-    img = Image.new("RGB", (size, size), (26, 26, 26))  # #1a1a1a
+    big = size * SS
+    CORAL = (234, 88, 12)  # #ea580c
+    img = Image.new("RGB", (big, big), CORAL)
     d = ImageDraw.Draw(img)
-    # 記事(紙)を表す白い角丸長方形
-    px0, py0, px1, py1 = 42, 34, 138, 152
-    d.rounded_rectangle([px0, py0, px1, py1], radius=12, fill=(255, 255, 255))
-    # 見出しバー
-    d.rounded_rectangle([px0 + 14, py0 + 16, px1 - 14, py0 + 34], radius=4, fill=(26, 26, 26))
-    # 本文行
-    y = py0 + 48
-    for i in range(4):
-        x_end = px1 - 14 if i < 3 else px1 - 40
-        d.rounded_rectangle([px0 + 14, y, x_end, y + 8], radius=4, fill=(176, 176, 176))
-        y += 20
+    cx, cy = 90.0, 90.0
+    ux, uy = 0.70710678, -0.70710678   # 軸方向(右上=ペン後端側)
+    pxx, pyy = 0.70710678, 0.70710678  # 軸に垂直
+    w = 13.0  # ペンの太さ(半幅)
+    def P(t, s):
+        return ((cx + t * ux + s * pxx) * SS, (cy + t * uy + s * pyy) * SS)
+    # 本体(白)
+    d.polygon([P(60, w), P(60, -w), P(-30, -w), P(-30, w)], fill=(255, 255, 255))
+    # 先端の三角(白)
+    d.polygon([P(-30, w), P(-30, -w), P(-58, 0)], fill=(255, 255, 255))
+    # 消しゴム(ピンク)
+    d.polygon([P(60, w), P(60, -w), P(52, -w), P(52, w)], fill=(249, 168, 212))
+    # 口金バンド(コーラルで切り込み)
+    d.line([P(50, -w), P(50, w)], fill=CORAL, width=int(3 * SS))
+    # 芯(濃紺)
+    d.polygon([P(-50, 3.7), P(-50, -3.7), P(-58, 0)], fill=(31, 41, 55))
+    img = img.resize((size, size), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     _APP_ICON_CACHE = buf.getvalue()
@@ -77,7 +87,7 @@ WEB_MANIFEST = json.dumps({
     "start_url": "/",
     "display": "standalone",
     "background_color": "#f5f5f5",
-    "theme_color": "#1a1a1a",
+    "theme_color": "#ea580c",
     "icons": [
         {"src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
     ],
@@ -120,7 +130,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="記事投稿">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#1a1a1a">
+<meta name="theme-color" content="#ea580c">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -1615,7 +1625,7 @@ HTML = r"""<!DOCTYPE html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="記事投稿">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#1a1a1a">
+<meta name="theme-color" content="#ea580c">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">

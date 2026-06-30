@@ -615,3 +615,4 @@ RenderでのWeb運用を想定しています。
 - 本文の文字数を最終的に105〜115文字程度に調整（一時的に125〜135文字へ拡大したが多すぎたため中間値に戻した）
 - iPhoneのホーム画面追加（PWA）に対応。apple-mobile-web-app系メタタグ・theme-color・manifestを追加し、アプリ名「記事投稿」・単独表示（Safari UI非表示）・ステータスバー設定を反映
 - ホーム画面アイコン（180x180 PNG）をPILで動的生成し `/apple-touch-icon.png` で配信、`/manifest.webmanifest` も追加（いずれも認証前に配信しOSが取得可能）
+- アイコンデザインを「執筆（ペン）」に決定。コーラル背景（#ea580c）に斜めの白いペン（ピンク消しゴム・濃紺の芯）。4倍解像度で描画→LANCZOS縮小でアンチエイリアス。theme-color/manifestのテーマ色もコーラルに統一

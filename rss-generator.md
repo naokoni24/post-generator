@@ -616,3 +616,4 @@ RenderでのWeb運用を想定しています。
 - iPhoneのホーム画面追加（PWA）に対応。apple-mobile-web-app系メタタグ・theme-color・manifestを追加し、アプリ名「記事投稿」・単独表示（Safari UI非表示）・ステータスバー設定を反映
 - ホーム画面アイコン（180x180 PNG）をPILで動的生成し `/apple-touch-icon.png` で配信、`/manifest.webmanifest` も追加（いずれも認証前に配信しOSが取得可能）
 - アイコンデザインを「執筆（ペン）」に決定。コーラル背景（#ea580c）に斜めの白いペン（ピンク消しゴム・濃紺の芯）。4倍解像度で描画→LANCZOS縮小でアンチエイリアス。theme-color/manifestのテーマ色もコーラルに統一
+- 【不具合修正】Render環境にはPillowが無く（requirements.txtは標準ライブラリのみの方針）、PIL依存のアイコン生成がサイレントに404していた。ローカルでPillowを使い事前生成したPNGをBase64文字列としてコードに埋め込み、配信時はデコードのみで完結するように変更。サードパーティ依存ゼロの方針を維持したまま解決

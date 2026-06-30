@@ -41,44 +41,18 @@ class FeedRedirectHandler(HTTPRedirectHandler):
 
 _APP_ICON_CACHE = None
 
+# ホーム画面アイコン(180x180 PNG・「執筆」ペンデザイン)。
+# Render環境にPillow等のサードパーティ依存が無いため、事前生成したPNGをBase64で埋め込む。
+_APP_ICON_B64 = (
+    "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"
+)
+
 def build_app_icon():
-    """ホーム画面用アイコン(180x180 PNG)を生成して返す。PIL未導入時はNone。"""
+    """ホーム画面用アイコン(180x180 PNG)を返す。事前生成したPNGをデコードするだけ。"""
     global _APP_ICON_CACHE
-    if _APP_ICON_CACHE is not None:
-        return _APP_ICON_CACHE or None
-    try:
-        import io
-        from PIL import Image, ImageDraw
-    except Exception:
-        _APP_ICON_CACHE = b""
-        return None
-    # 「執筆（ペン）」アイコン: コーラル背景に斜めの白いペン
-    SS = 4  # アンチエイリアス用の拡大率
-    size = 180
-    big = size * SS
-    CORAL = (234, 88, 12)  # #ea580c
-    img = Image.new("RGB", (big, big), CORAL)
-    d = ImageDraw.Draw(img)
-    cx, cy = 90.0, 90.0
-    ux, uy = 0.70710678, -0.70710678   # 軸方向(右上=ペン後端側)
-    pxx, pyy = 0.70710678, 0.70710678  # 軸に垂直
-    w = 13.0  # ペンの太さ(半幅)
-    def P(t, s):
-        return ((cx + t * ux + s * pxx) * SS, (cy + t * uy + s * pyy) * SS)
-    # 本体(白)
-    d.polygon([P(60, w), P(60, -w), P(-30, -w), P(-30, w)], fill=(255, 255, 255))
-    # 先端の三角(白)
-    d.polygon([P(-30, w), P(-30, -w), P(-58, 0)], fill=(255, 255, 255))
-    # 消しゴム(ピンク)
-    d.polygon([P(60, w), P(60, -w), P(52, -w), P(52, w)], fill=(249, 168, 212))
-    # 口金バンド(コーラルで切り込み)
-    d.line([P(50, -w), P(50, w)], fill=CORAL, width=int(3 * SS))
-    # 芯(濃紺)
-    d.polygon([P(-50, 3.7), P(-50, -3.7), P(-58, 0)], fill=(31, 41, 55))
-    img = img.resize((size, size), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    _APP_ICON_CACHE = buf.getvalue()
+    if _APP_ICON_CACHE is None:
+        import base64
+        _APP_ICON_CACHE = base64.b64decode(_APP_ICON_B64)
     return _APP_ICON_CACHE
 
 WEB_MANIFEST = json.dumps({

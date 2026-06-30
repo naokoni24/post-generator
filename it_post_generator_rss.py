@@ -39,6 +39,50 @@ class FeedRedirectHandler(HTTPRedirectHandler):
     def http_error_308(self, req, fp, code, msg, headers):
         return self.http_error_302(req, fp, code, msg, headers)
 
+_APP_ICON_CACHE = None
+
+def build_app_icon():
+    """ホーム画面用アイコン(180x180 PNG)を生成して返す。PIL未導入時はNone。"""
+    global _APP_ICON_CACHE
+    if _APP_ICON_CACHE is not None:
+        return _APP_ICON_CACHE or None
+    try:
+        import io
+        from PIL import Image, ImageDraw
+    except Exception:
+        _APP_ICON_CACHE = b""
+        return None
+    size = 180
+    img = Image.new("RGB", (size, size), (26, 26, 26))  # #1a1a1a
+    d = ImageDraw.Draw(img)
+    # 記事(紙)を表す白い角丸長方形
+    px0, py0, px1, py1 = 42, 34, 138, 152
+    d.rounded_rectangle([px0, py0, px1, py1], radius=12, fill=(255, 255, 255))
+    # 見出しバー
+    d.rounded_rectangle([px0 + 14, py0 + 16, px1 - 14, py0 + 34], radius=4, fill=(26, 26, 26))
+    # 本文行
+    y = py0 + 48
+    for i in range(4):
+        x_end = px1 - 14 if i < 3 else px1 - 40
+        d.rounded_rectangle([px0 + 14, y, x_end, y + 8], radius=4, fill=(176, 176, 176))
+        y += 20
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    _APP_ICON_CACHE = buf.getvalue()
+    return _APP_ICON_CACHE
+
+WEB_MANIFEST = json.dumps({
+    "name": "IT記事 投稿ジェネレーター",
+    "short_name": "記事投稿",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f5f5f5",
+    "theme_color": "#1a1a1a",
+    "icons": [
+        {"src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
+    ],
+}, ensure_ascii=False)
+
 API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 PORT       = int(os.environ.get("PORT", 8765))
 RECENT_DAYS = 0
@@ -70,8 +114,16 @@ LOGIN_HTML = """<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ログイン</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="記事投稿">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1a1a1a">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh}
@@ -1556,8 +1608,17 @@ HTML = r"""<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>IT記事 投稿ジェネレーター</title>
+<!-- iPhone ホーム画面追加（PWA）用 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="記事投稿">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1a1a1a">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; padding: 2rem 1rem; }
@@ -2309,6 +2370,29 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect_login()
         if self.path == "/logout":
             return self._handle_logout()
+        # アイコン・マニフェストはOSが認証クッキー無しで取得するため認証前に配信
+        if self.path == "/apple-touch-icon.png" or self.path.startswith("/apple-touch-icon"):
+            icon = build_app_icon()
+            if not icon:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", len(icon))
+            self.end_headers()
+            self.wfile.write(icon)
+            return
+        if self.path == "/manifest.webmanifest":
+            body = WEB_MANIFEST.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", len(body))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if not self._check_auth():
             self.send_response(302)
             self.send_header("Location", "/login")

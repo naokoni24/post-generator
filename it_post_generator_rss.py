@@ -2198,7 +2198,7 @@ el('selectBtn').onclick=async()=>{
       : `RSS概要: ${art.summary||'概要なし'}`;
 
     setStatus(true,'投稿文を生成中...');
-    // XはURLを常に23文字としてカウントする。本文+ハッシュタグを117文字以内に収める
+    // XはURLを常に23文字としてカウントする。本文はURL込みで280以内に収める
     const includeOpinion=el('includeOpinion').checked;
     const opinionStyleMap={
       impression: articleBody
@@ -2231,7 +2231,9 @@ ${contextText}
 - RSSニュース/Blog: 記事の要点を具体的な数値や機能名を交えて2文程度で紹介${opinionInstruction}
 
 【文字数】
-- 日本語105〜115文字程度（短すぎず長すぎず）
+- 日本語120〜125文字程度
+- 2〜3文で、記事の具体的な要点を薄めずに書く
+- 短すぎる投稿は禁止。要点・影響・感想/考察の順に情報量を持たせる
 - 本文のみ回答
 
 【その他の制約】
@@ -2243,6 +2245,29 @@ ${contextText}
     let body = data.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
     const urlStr  = shareUrl  ? '\n'+shareUrl  : '';
     let tweet = body + urlStr;
+
+    // 短すぎる場合は、X上限に収まる範囲で本文だけを一度だけ膨らませる
+    const bodyLen = calcLen(body);
+    if(bodyLen < 230){
+      setStatus(true,'投稿文を少し詳しく調整中...');
+      try{
+        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。記事の具体的な要点・利用者への影響・感想/考察を補って、日本語120〜125文字程度の2〜3文にしてください。
+URLとハッシュタグは不要。本文のみ回答。
+「速報」という言葉は使わない。
+
+記事タイトル: ${art.title}
+ソース: ${art.source}
+${contextText}
+
+現在の本文:
+${body}`}]);
+        const expandedBody=expanded.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
+        if(expandedBody && calcLen(expandedBody + urlStr) <= 280){
+          body = expandedBody;
+          tweet = body + urlStr;
+        }
+      }catch(e){ console.warn('本文拡張失敗',e); }
+    }
 
     // Step2: それでもオーバーなら Claude で本文を自動短縮
     if(calcLen(tweet)>280){

@@ -22,7 +22,7 @@ push先は必ず `https://github.com/naokoni24/post-generator` です。
 
 IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Blog / Docs更新、必要に応じて公式X検索を統合し、X投稿用の記事候補を取得する単一ファイルのPython製Webアプリです。
 
-取得した候補は日本語で選びやすい表示に変換し、記事本文の取得とClaude APIによる投稿文生成を行います。
+取得した候補は日本語で選びやすい表示に変換し、記事本文の取得とGemini APIによる投稿文生成を行います。
 
 ## 基本構成
 
@@ -31,14 +31,15 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - ローカル起動: `python3 it_post_generator_rss.py`
 - デフォルトURL: `http://localhost:8765`
 - 外部ライブラリ: なし
-- 文章生成 / 翻訳API: Anthropic Claude API
-- 使用モデル: `claude-haiku-4-5`
+- 文章生成 / 翻訳API: Google Gemini API
+- 使用モデル: `gemini-2.5-flash`（Gemini無料枠運用）
 
 ## 環境変数
 
 | 変数 | 必須 | 内容 |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | 投稿生成・翻訳には必須 | Claude APIキー |
+| `GEMINI_API_KEY` | 投稿生成・翻訳には必須 | Gemini APIキー |
+| `GEMINI_MODEL` | 任意 | 未指定時は `gemini-2.5-flash` |
 | `PORT` | 任意 | Webサーバーのポート。未指定時は `8765` |
 | `BASIC_USER` | 任意 | ログイン用ユーザー名 |
 | `BASIC_PASS` | 任意 | ログイン用パスワード |
@@ -378,7 +379,7 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 ## 翻訳仕様
 
-候補タイトル・概要は、Claude APIで日本語表示に変換します。
+候補タイトル・概要は、Gemini APIで日本語表示に変換します。
 
 翻訳対象:
 
@@ -398,7 +399,7 @@ APIキーが未設定の場合、翻訳は実行されません。
 
 ## 投稿文生成
 
-記事候補を選択後、参照URL先の本文を取得し、Claude APIでX投稿文を生成します。
+記事候補を選択後、参照URL先の本文を取得し、Gemini APIでX投稿文を生成します。
 
 投稿文生成では以下を考慮します。
 
@@ -414,14 +415,14 @@ APIキーが未設定の場合、翻訳は実行されません。
 記事選択後、投稿文生成の前に記事内容に合ったハッシュタグを自動生成します。
 
 - 重要度順に最大3つ
-- Claude APIで記事タイトルと本文から生成
+- Gemini APIで記事タイトルと本文から生成
 - 日本語または一般的な英語技術用語（例: `#生成AI`、`#LLM`、`#OpenAI`）
 - 生成後は手動編集可能
 
 ### 文字数オーバー時の処理
 
 1. ハッシュタグを後ろから1つずつ削除して280文字以内に収める
-2. それでもオーバーなら Claude API で本文を自動短縮
+2. それでもオーバーなら Gemini API で本文を自動短縮
 3. 手動短縮ボタン（✂️ 自動短縮）は常時表示可能
 
 X文字数カウントは以下のルールです。
@@ -445,7 +446,7 @@ X文字数カウントは以下のルールです。
 | `GET` | `/api/rss` | 記事候補を取得 |
 | `GET` | `/api/fetch_article` | 参照URL先の本文を取得 |
 | `POST` | `/api/translate_candidates` | 候補タイトル・概要を翻訳 |
-| `POST` | `/api/claude` | Claude API経由で投稿文などを生成 |
+| `POST` | `/api/claude` | Gemini API経由で投稿文などを生成（エンドポイント名は歴史的経緯でclaudeのまま） |
 
 ### `/api/rss` の主なクエリ
 
@@ -518,7 +519,7 @@ RenderでのWeb運用を想定しています。
 
 必要な環境変数:
 
-- `ANTHROPIC_API_KEY`
+- `GEMINI_API_KEY`
 - `BASIC_USER`
 - `BASIC_PASS`
 - `COOKIE_SECRET`
@@ -530,7 +531,7 @@ RenderでのWeb運用を想定しています。
 
 アプリ自体のRSS取得、GitHub Releases取得、Docs更新取得、公式X検索URL生成は無料です。
 
-費用が発生する可能性があるのはClaude APIです。
+無料枠（Gemini API）のみで運用しており、通常は費用が発生しません。
 
 主なAPI利用箇所:
 
@@ -540,7 +541,7 @@ RenderでのWeb運用を想定しています。
 - タグ生成
 
 1回あたりの費用は記事本文の長さ、翻訳件数、再生成回数により変動します。
-現在は低コストモデル `claude-haiku-4-5` を使う設計です。
+現在は無料枠モデル `gemini-2.5-flash` を使う設計です。
 
 ## 既知の仕様・注意点
 
@@ -617,3 +618,9 @@ RenderでのWeb運用を想定しています。
 - ホーム画面アイコン（180x180 PNG）をPILで動的生成し `/apple-touch-icon.png` で配信、`/manifest.webmanifest` も追加（いずれも認証前に配信しOSが取得可能）
 - アイコンデザインを「執筆（ペン）」に決定。コーラル背景（#ea580c）に斜めの白いペン（ピンク消しゴム・濃紺の芯）。4倍解像度で描画→LANCZOS縮小でアンチエイリアス。theme-color/manifestのテーマ色もコーラルに統一
 - 【不具合修正】Render環境にはPillowが無く（requirements.txtは標準ライブラリのみの方針）、PIL依存のアイコン生成がサイレントに404していた。ローカルでPillowを使い事前生成したPNGをBase64文字列としてコードに埋め込み、配信時はデコードのみで完結するように変更。サードパーティ依存ゼロの方針を維持したまま解決
+- 【大きな変更】投稿文生成・記事タイトル翻訳をClaude API（claude-haiku-4-5）からGemini API（gemini-2.5-flash）に完全移行し、無料枠だけで運用できるようにした
+  - 環境変数を `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`（+ 任意で `GEMINI_MODEL`）に変更
+  - Gemini呼び出しは `call_gemini()` に集約。`thinkingConfig.thinkingBudget=0` でthinkingトークンを無効化しコスト・レイテンシを抑制（meal-fitプロジェクトの実装パターンを踏襲）
+  - 翻訳バッチ処理は `responseMimeType: "application/json"` でJSON強制出力に変更
+  - `/api/status` の `has_key` 判定もGEMINI_API_KEY基準に変更
+  - 使用するGeminiキーはpet-feeling-app・meal-fitとは別プロジェクトで新規発行し、無料枠（1,500回/日）を分離

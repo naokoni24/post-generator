@@ -67,7 +67,41 @@ WEB_MANIFEST = json.dumps({
     ],
 }, ensure_ascii=False)
 
-API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL   = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+def call_gemini(prompt_text, max_tokens=800, json_mode=False):
+    """Gemini APIにプロンプトを送りテキストを返す。無料枠運用のためthinkingは無効化。"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    generation_config = {
+        "maxOutputTokens": max_tokens,
+        "thinkingConfig": {"thinkingBudget": 0},
+    }
+    if json_mode:
+        generation_config["responseMimeType"] = "application/json"
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+        "generationConfig": generation_config,
+    }
+    req = Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(req, timeout=30) as res:
+        result = json.loads(res.read())
+    usage = result.get("usageMetadata")
+    if usage:
+        print(f"[Gemini] tokens in={usage.get('promptTokenCount')} out={usage.get('candidatesTokenCount')} total={usage.get('totalTokenCount')}", flush=True)
+    candidate = (result.get("candidates") or [None])[0]
+    if not candidate:
+        raise RuntimeError(f"Gemini API: 候補が空です (response={result})")
+    parts = candidate.get("content", {}).get("parts", [])
+    text = next((p.get("text") for p in parts if p.get("text")), None)
+    if not text:
+        raise RuntimeError(f"Gemini API: 空のレスポンス (finishReason={candidate.get('finishReason')})")
+    return text
 PORT       = int(os.environ.get("PORT", 8765))
 RECENT_DAYS = 0
 RSS_FETCH_TIMEOUT = 4.0
@@ -1084,24 +1118,8 @@ _TRANSLATION_CACHE = {}
 def _translate_batch(items_in):
     """items_in リストをAPIで翻訳し、結果リストを返す。失敗時は空リスト"""
     prompt = TRANSLATE_PROMPT_BASE + json.dumps(items_in, ensure_ascii=False)
-    body = {
-        "model": "claude-haiku-4-5",
-        "max_tokens": 2200,
-        "messages": [{"role": "user", "content": prompt}]
-    }
-    req = Request(
-        "https://api.anthropic.com/v1/messages",
-        data=json.dumps(body).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": API_KEY,
-            "anthropic-version": "2023-06-01",
-        },
-        method="POST",
-    )
-    with urlopen(req, timeout=20) as res:
-        result = json.loads(res.read())
-    text = result["content"][0]["text"].strip()
+    text = call_gemini(prompt, max_tokens=2200, json_mode=True)
+    text = text.strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
     if not text.startswith("["):
         match = re.search(r"\[[\s\S]*\]", text)
@@ -1110,7 +1128,7 @@ def _translate_batch(items_in):
     return json.loads(text)
 
 def translate_titles(articles, max_items=20):
-    if not API_KEY:
+    if not GEMINI_API_KEY:
         return articles
     targets = [
         (i, a)
@@ -2383,7 +2401,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if self.path == "/api/status":
-            self.send_json(200, {"has_key": bool(API_KEY)})
+            self.send_json(200, {"has_key": bool(GEMINI_API_KEY)})
         elif self.path.startswith("/api/cancel"):
             from urllib.parse import urlparse, parse_qs
             params = parse_qs(urlparse(self.path).query)
@@ -2547,49 +2565,28 @@ class Handler(BaseHTTPRequestHandler):
 
         messages = payload.get("messages", [])
 
-        if not API_KEY:
-            self.send_json(500, {"error": "ANTHROPIC_API_KEY が設定されていません"})
+        if not GEMINI_API_KEY:
+            self.send_json(500, {"error": "GEMINI_API_KEY が設定されていません"})
             return
 
-        body = {
-            "model": "claude-haiku-4-5",
-            "max_tokens": 800,
-            "messages": messages,
-        }
-
-        req = Request(
-            "https://api.anthropic.com/v1/messages",
-            data=json.dumps(body).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": API_KEY,
-                "anthropic-version": "2023-06-01",
-            },
-            method="POST",
-        )
+        prompt_text = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
         try:
-            with urlopen(req, timeout=30) as res:
-                result = json.loads(res.read())
-            print(f"[API] usage={result.get('usage')}", flush=True)
-            text_block = next((b for b in result.get("content", []) if b.get("type") == "text"), None)
-            if not text_block:
-                self.send_json(500, {"error": "テキストブロックがありません"})
-                return
-            self.send_json(200, {"text": text_block["text"]})
+            text = call_gemini(prompt_text, max_tokens=800)
+            self.send_json(200, {"text": text})
         except Exception as e:
             print(f"[ERROR] {e}", flush=True)
             self.send_json(500, {"error": str(e)})
 
 
 def main():
-    if not API_KEY:
-        print("⚠️  ANTHROPIC_API_KEY が設定されていません")
-        print("   export ANTHROPIC_API_KEY=sk-ant-... を実行してから再起動してください\n")
+    if not GEMINI_API_KEY:
+        print("⚠️  GEMINI_API_KEY が設定されていません")
+        print("   export GEMINI_API_KEY=... を実行してから再起動してください\n")
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"✅ サーバー起動: {url}")
-    print(f"   モデル: claude-haiku-4-5（複数ソース版・低コスト）")
+    print(f"   モデル: {GEMINI_MODEL}（Gemini無料枠運用）")
     print("   Ctrl+C で終了\n")
 
     if os.environ.get("PORT") is None:  # ローカルのみブラウザ自動起動

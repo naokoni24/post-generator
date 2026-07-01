@@ -624,9 +624,13 @@ RenderでのWeb運用を想定しています。
   - 翻訳バッチ処理は `responseMimeType: "application/json"` でJSON強制出力に変更
   - `/api/status` の `has_key` 判定もGEMINI_API_KEY基準に変更
   - 使用するGeminiキーはpet-feeling-app・meal-fitとは別プロジェクトで新規発行し、無料枠（1,500回/日）を分離
-- 【重要な発見・モデル変更】`gemini-2.5-flash` は無料枠の日次上限が実測で **20回/日** と非常に少なく（`GenerateRequestsPerDayPerProjectPerModel-FreeTier` quotaValue=20）、翻訳バッチだけで枯渇し429連発した。デフォルトモデルを `gemini-2.5-flash-lite` に変更して解消（同キーで連続呼び出しも安定）。`GEMINI_MODEL` 環境変数で上書き可能な設計は維持
+- 【重要な発見・要注意】現在使用しているGeminiキー（新規発行分）のプロジェクトは、`gemini-2.5-flash` だけでなく **`gemini-2.5-flash-lite` も無料枠の日次上限が実測20回/日**（`GenerateRequestsPerDayPerProjectPerModel-FreeTier` quotaValue=20、モデル問わず共通）。一般に案内されている1,500回/日よりずっと少なく、通常利用でも簡単に枯渇しうる。デフォルトモデルは `gemini-2.5-flash-lite` のままにしているが、これはレイテンシ・thinking無効化の観点での選択であり、クォータ問題の根本解決ではない点に注意
+  - 日次上限に達すると `HTTP Error 429: Too Many Requests` としてエラー表示される（自動リトライは無し）
+  - 上限緩和にはGoogle Cloudプロジェクトの請求設定（billing）有効化が必要になる可能性が高い。無料のまま運用する場合は「1日に使える生成回数が実質20回程度」という制約を前提にする
 - 記事に合う画像を生成するための英語プロンプトを作成する機能を追加
-  - 投稿結果カード内に「🎨 画像生成プロンプトを作成」ボタンを追加（`imgPromptBtn`）。押すとGeminiが記事タイトル・本文/概要から、Midjourney/DALL-E/Stable Diffusion等でそのまま使える英語プロンプトを1〜2文で生成し表示（`imgPromptBox`）
+  - 投稿結果カード内に「🎨 画像生成プロンプトを作成」ボタンを追加（`imgPromptBtn`）。押すとGeminiが記事タイトル・本文/概要から、記事の要点を表す5〜10文字程度の日本語キャッチコピー（`caption_ja`）と、Midjourney/DALL-E/Stable Diffusion等でそのまま使える英語のシーン描写プロンプト（`image_prompt`）をJSON構造化出力（`json_mode`）で取得
+  - 日本語キャッチコピーの画像内埋め込み指示（`with bold Japanese text overlay reading "..." in a clean sans-serif font`）とスタイル指定（flat illustration, tech blog header等）はサーバー応答をそのまま使わず、クライアント側で組み立てて連結する設計に変更（Gemini任せだと埋め込み指示が重複・二重出力される不具合があったため）
+  - `/api/claude` は `json_mode: true` を受け取ると `call_gemini()` に `responseMimeType: application/json` を指定して呼び出す
   - 実際の画像生成は行わず、プロンプト文の表示・コピーのみ（コスト・実装をシンプルに保つ判断）
-  - 人物の実写・著名人・ロゴ再現を避け、flat illustration / tech blog header調の抽象的ビジュアルになるようスタイル指定を固定
+  - 人物の実写・著名人・ロゴ再現を避け、抽象的・概念的なビジュアルになるよう指示
   - 投稿文生成のたびに `lastArticle` / `lastArticleBody` を更新し、画像プロンプト表示もリセットする

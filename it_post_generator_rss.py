@@ -1925,11 +1925,11 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword,
   throw lastError||new Error('記事が見つかりませんでした');
 }
 
-async function callProxy(messages){
+async function callProxy(messages, jsonMode){
   const r=await fetch('/api/claude',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({messages})
+    body:JSON.stringify(jsonMode ? {messages, json_mode:true} : {messages})
   });
   if(!r.ok){const t=await r.text();throw new Error(t);}
   return r.json();
@@ -2293,18 +2293,21 @@ el('imgPromptBtn').onclick=async()=>{
   el('imgPromptBtn').textContent='生成中...';
   try{
     const source=lastArticleBody || lastArticle.summary || lastArticle.title;
-    const data=await callProxy([{role:'user',content:`以下のIT記事に合う、SNS投稿に添える画像を生成するための英語プロンプトを1つ作成してください。
+    const data=await callProxy([{role:'user',content:`以下のIT記事について、SNS投稿に添える画像を作るための素材を考えてください。
 
 記事タイトル: ${lastArticle.title}
 内容: ${source.slice(0,400)}
 
-ルール:
-- 画像生成AI（Midjourney、DALL-E、Stable Diffusion、Imagenなど）でそのまま使える英語のプロンプト
-- 記事の具体的なテーマ・技術要素を反映した構図にする
-- スタイルは "flat illustration, tech blog header, clean minimal design, vibrant accent color" のような簡潔なスタイル指定を含める
-- 人物の実写・著名人・ロゴの再現は避け、抽象的・概念的なビジュアルにする
-- 1〜2文程度の英語プロンプトのみを返す（説明や前置きは不要）`}]);
-    el('imgPromptBox').textContent=data.text.trim();
+出力ルール:
+- JSON形式のみで回答する。説明や前置き、Markdownのコードブロックは一切不要
+- 形式: {"caption_ja": "文字列", "image_prompt": "文字列"}
+- caption_ja: 記事内容の要点を表す、5〜10文字程度の簡潔な日本語キャッチコピー（体言止め。例: "AI規制解除"）
+- image_prompt: 画像生成AI（Midjourney、DALL-E、Stable Diffusionなど）でそのまま使える英語のシーン描写プロンプト。記事の具体的なテーマ・技術要素を反映した抽象的・概念的な構図にする（人物の実写・著名人・ロゴの再現は避ける）。テキストやキャプションの指示はimage_promptに含めない（別途こちらで付加するため）`}], true);
+    let parsed;
+    try{ parsed = JSON.parse(data.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,'')); }
+    catch(e){ throw new Error('プロンプトの解析に失敗しました'); }
+    const finalPrompt = `${parsed.image_prompt}, flat illustration, tech blog header, clean minimal design, vibrant accent color, with bold Japanese text overlay reading "${parsed.caption_ja}" in a clean sans-serif font`;
+    el('imgPromptBox').textContent=finalPrompt;
     el('imgPromptBox').style.display='block';
     el('imgPromptCopyBtn').style.display='inline-block';
   }catch(e){
@@ -2623,8 +2626,9 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         prompt_text = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+        json_mode = bool(payload.get("json_mode"))
         try:
-            text = call_gemini(prompt_text, max_tokens=800)
+            text = call_gemini(prompt_text, max_tokens=800, json_mode=json_mode)
             self.send_json(200, {"text": text})
         except Exception as e:
             print(f"[ERROR] {e}", flush=True)

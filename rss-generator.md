@@ -658,3 +658,4 @@ RenderでのWeb運用を想定しています。
   - 上記「画面復帰時のセッション確認」機能（`checkSessionOnResume`）は `pageshow` イベントでログイン直後の初回画面表示時にも必ず発火し、その `/api/status` フェッチが `Content-Type: application/json` でないことを検知して即座に `window.location.href='/login'` を実行していたため、認証自体は成功しているのに毎回ログイン画面へ引き戻されていた
   - 修正: `self.path == "/api/status"` を `self.path.split("?", 1)[0] == "/api/status"` に変更し、クエリ文字列の有無に関わらず正しくマッチするように修正
   - Previewブラウザで `document.cookie` はHttpOnly Cookieを操作できないため再現・検証には `/logout` エンドポイントと `form.requestSubmit()` を使い、fetchの`redirected`/`contentType`/本文を直接確認して原因を特定した
+  - 【運用メモ】`rss-generator/` ディレクトリには自然な `.git`（このリポジトリの通常のgit管理）が存在し、同じ `post-generator` リモートを追跡している。本プロジェクトのルールで使っている `GIT_DIR=.git.post-generator-current-20260616` 方式とは別の場所に履歴を持つため、両者が並行してpushすると今回のような分岐・コンフリクトが起きうる。次回作業前には両者の状態確認を推奨

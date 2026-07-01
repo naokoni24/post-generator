@@ -2293,20 +2293,25 @@ el('imgPromptBtn').onclick=async()=>{
   el('imgPromptBtn').textContent='生成中...';
   try{
     const source=lastArticleBody || lastArticle.summary || lastArticle.title;
-    const data=await callProxy([{role:'user',content:`以下のIT記事について、SNS投稿に添える画像を作るための素材を考えてください。
+    const data=await callProxy([{role:'user',content:`以下のIT記事を、日本語の解説インフォグラフィック画像にするための構成要素を考えてください。SNSでよく見る「わかりやすい図解」投稿のような、見出し＋複数ステップ＋マスコットキャラクターのイラストを想定します。
 
 記事タイトル: ${lastArticle.title}
 内容: ${source.slice(0,400)}
 
 出力ルール:
 - JSON形式のみで回答する。説明や前置き、Markdownのコードブロックは一切不要
-- 形式: {"caption_ja": "文字列", "image_prompt": "文字列"}
-- caption_ja: 記事内容の要点を表す、5〜10文字程度の簡潔な日本語キャッチコピー（体言止め。例: "AI規制解除"）
-- image_prompt: 画像生成AI（Midjourney、DALL-E、Stable Diffusionなど）でそのまま使える英語のシーン描写プロンプト。記事の具体的なテーマ・技術要素を反映した抽象的・概念的な構図にする（人物の実写・著名人・ロゴの再現は避ける）。テキストやキャプションの指示はimage_promptに含めない（別途こちらで付加するため）`}], true);
+- 形式: {"title_ja": "文字列", "sections": [{"label_ja": "文字列", "visual_en": "文字列"}, ...]}
+- title_ja: 画像上部に大きく表示する見出し。記事の要点を興味を引く一言でまとめた日本語（15〜25文字程度。例: "フィジカルAIってなに？「頭脳」から「身体」をもつ進化！"）
+- sections: 記事の内容を2〜4個の流れ・比較・要素に分解したもの。それぞれ:
+  - label_ja: そのステップ・要素を表す短い日本語ラベル（4〜10文字。例: "今までのAI"）
+  - visual_en: そのステップを視覚的に表すイラスト要素の英語説明（アイコンやマスコットロボットの動作など、具体的に）
+- 全体として「Before/After」「変化の3ステップ」など、左から右へ読み進められる構成にする`}], true);
     let parsed;
     try{ parsed = JSON.parse(data.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,'')); }
     catch(e){ throw new Error('プロンプトの解析に失敗しました'); }
-    const finalPrompt = `${parsed.image_prompt}, flat illustration, tech blog header, clean minimal design, vibrant accent color, with bold Japanese text overlay reading "${parsed.caption_ja}" in a clean sans-serif font`;
+    const sections=(parsed.sections||[]);
+    const sectionDesc=sections.map((s,i)=>`section ${i+1} showing ${s.visual_en}, with a Japanese text label reading "${s.label_ja}"`).join(', then connected by a simple arrow to ');
+    const finalPrompt = `A cute, colorful flat-illustration infographic in a hand-drawn Japanese explainer style, with a cheerful mascot robot character. Large bold Japanese title text overlay at the top reading "${parsed.title_ja}". The image is divided into ${sections.length} horizontal sections read left to right: ${sectionDesc}. Bright color palette, sparkle and star decorations, clean vector-style icons, educational social-media infographic aesthetic, clean sans-serif Japanese typography. No photorealistic humans, celebrities, or brand logos.`;
     el('imgPromptBox').textContent=finalPrompt;
     el('imgPromptBox').style.display='block';
     el('imgPromptCopyBtn').style.display='inline-block';

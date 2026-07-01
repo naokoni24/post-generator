@@ -1819,8 +1819,8 @@ HTML = r"""<!DOCTYPE html>
     </div>
     <div class="img-prompt-section">
       <button class="img-prompt-btn" id="imgPromptBtn">🎨 画像生成プロンプトを作成</button>
-      <div class="img-prompt-box" id="imgPromptBox"></div>
       <button class="img-prompt-copy" id="imgPromptCopyBtn" style="display:none">📋 プロンプトをコピー</button>
+      <div class="img-prompt-box" id="imgPromptBox"></div>
     </div>
   </div>
 

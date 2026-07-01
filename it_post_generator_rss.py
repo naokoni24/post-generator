@@ -21,6 +21,7 @@ import re
 import hmac
 import hashlib
 import unicodedata
+import time
 try:
     from zoneinfo import ZoneInfo
     LOCAL_TZ = ZoneInfo("Asia/Tokyo")
@@ -39,7 +40,63 @@ class FeedRedirectHandler(HTTPRedirectHandler):
     def http_error_308(self, req, fp, code, msg, headers):
         return self.http_error_302(req, fp, code, msg, headers)
 
-API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
+_APP_ICON_CACHE = None
+
+# ホーム画面アイコン(180x180 PNG・「執筆」ペンデザイン)。
+# Render環境にPillow等のサードパーティ依存が無いため、事前生成したPNGをBase64で埋め込む。
+_APP_ICON_B64 = (
+    "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"
+)
+
+def build_app_icon():
+    """ホーム画面用アイコン(180x180 PNG)を返す。事前生成したPNGをデコードするだけ。"""
+    global _APP_ICON_CACHE
+    if _APP_ICON_CACHE is None:
+        import base64
+        _APP_ICON_CACHE = base64.b64decode(_APP_ICON_B64)
+    return _APP_ICON_CACHE
+
+WEB_MANIFEST = json.dumps({
+    "name": "IT記事 投稿ジェネレーター",
+    "short_name": "記事投稿",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f5f5f5",
+    "theme_color": "#ea580c",
+    "icons": [
+        {"src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
+    ],
+}, ensure_ascii=False)
+
+API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+CLAUDE_MODEL = "claude-haiku-4-5"
+
+def call_claude(prompt_text, max_tokens=800, json_mode=False):
+    """Claude APIにプロンプトを送りテキストを返す。"""
+    body = {
+        "model": CLAUDE_MODEL,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt_text}],
+    }
+    req = Request(
+        "https://api.anthropic.com/v1/messages",
+        data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": API_KEY,
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST",
+    )
+    with urlopen(req, timeout=30) as res:
+        result = json.loads(res.read())
+    usage = result.get("usage")
+    if usage:
+        print(f"[Claude] tokens in={usage.get('input_tokens')} out={usage.get('output_tokens')}", flush=True)
+    text_block = next((b for b in result.get("content", []) if b.get("type") == "text"), None)
+    if not text_block:
+        raise RuntimeError(f"Claude API: テキストブロックがありません (response={result})")
+    return text_block["text"]
 PORT       = int(os.environ.get("PORT", 8765))
 RECENT_DAYS = 0
 RSS_FETCH_TIMEOUT = 4.0
@@ -59,22 +116,49 @@ BASIC_USER = os.environ.get("BASIC_USER", "")
 BASIC_PASS = os.environ.get("BASIC_PASS", "")
 COOKIE_SECRET = os.environ.get("COOKIE_SECRET", BASIC_PASS or "dev-secret")
 COOKIE_NAME = "it_post_session"
+SESSION_IDLE_TIMEOUT_SECONDS = int(os.environ.get("SESSION_IDLE_TIMEOUT_SECONDS", "1800"))
 
-def _make_token():
-    """サーバー再起動後も有効な固定トークンを生成"""
-    return hmac.new(COOKIE_SECRET.encode(), b"authenticated", hashlib.sha256).hexdigest()
+def _sign_session(ts):
+    return hmac.new(COOKIE_SECRET.encode(), f"authenticated:{ts}".encode(), hashlib.sha256).hexdigest()
 
-VALID_TOKEN = _make_token()
+def _make_token(now=None):
+    """最終操作時刻を含むログインCookieトークンを生成"""
+    ts = int(now if now is not None else time.time())
+    return f"{ts}.{_sign_session(ts)}"
+
+def _validate_token(token):
+    """Cookieトークンが正しく、最終操作からタイムアウトしていないか確認"""
+    if not token or "." not in token:
+        return False
+    ts_text, _, sig = token.partition(".")
+    try:
+        ts = int(ts_text)
+    except ValueError:
+        return False
+    expected = _sign_session(ts)
+    if not hmac.compare_digest(sig, expected):
+        return False
+    age = time.time() - ts
+    # 端末時計・サーバー時刻の小さな揺れは許容しつつ、30分無操作なら失効
+    return -60 <= age <= SESSION_IDLE_TIMEOUT_SECONDS
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ログイン</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="記事投稿">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#ea580c">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:calc(1rem + env(safe-area-inset-top, 0px)) 1rem calc(1rem + env(safe-area-inset-bottom, 0px))}
   .card{background:#fff;border-radius:16px;padding:2.5rem 2rem;width:100%;max-width:360px;box-shadow:0 2px 20px rgba(0,0,0,.08)}
   h1{font-size:1.3rem;font-weight:700;margin-bottom:.4rem;text-align:center}
   p{font-size:.85rem;color:#888;text-align:center;margin-bottom:1.8rem}
@@ -675,17 +759,11 @@ _STORY_STOP_WORDS = {
 }
 
 def articles_describe_same_story(first, second):
-    """Google News内で見出し表現が異なる同一ニュースを検出する。"""
-    if not (
-        first.get("type") == "rss_news"
-        and second.get("type") == "rss_news"
-        and first.get("source", "").startswith("Google News ")
-        and second.get("source", "").startswith("Google News ")
-    ):
+    """異なるソースで配信された同一ニュースを検出する。"""
+    if not (first.get("type") == "rss_news" and second.get("type") == "rss_news"):
         return False
 
     def _title_tokens(article):
-        # 翻訳済みキャッシュと比較する場合も、原題を優先して同じ基準で判定する。
         title = article.get("title_en") or article.get("title", "")
         words = re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKC", title).lower())
         return [word for word in words if len(word) >= 3 and word not in _STORY_STOP_WORDS]
@@ -698,12 +776,24 @@ def articles_describe_same_story(first, second):
     overlap = len(shared) / min(len(set(first_tokens)), len(set(second_tokens)))
     first_bigrams = set(zip(first_tokens, first_tokens[1:]))
     second_bigrams = set(zip(second_tokens, second_tokens[1:]))
-    # 固有名詞4語以上、または人名等の連続2語を含む3語以上が一致する場合に統合する。
-    return (
-        len(shared) >= 4 and overlap >= 0.5
-    ) or (
-        len(shared) >= 3 and overlap >= 0.45 and bool(first_bigrams & second_bigrams)
-    )
+
+    first_is_gnews = first.get("source", "").startswith("Google News ")
+    second_is_gnews = second.get("source", "").startswith("Google News ")
+
+    if first_is_gnews and second_is_gnews:
+        # Google News同士: 同一ニュースを複数媒体が異なる見出しで配信するため積極的に統合
+        return (
+            len(shared) >= 3 and overlap >= 0.4
+        ) or (
+            len(shared) >= 2 and overlap >= 0.35 and bool(first_bigrams & second_bigrams)
+        )
+    else:
+        # 異なるRSSソース間: トークンの高一致率で同一記事と判定
+        return (
+            len(shared) >= 5 and overlap >= 0.7
+        ) or (
+            len(shared) >= 4 and overlap >= 0.6 and bool(first_bigrams & second_bigrams)
+        )
 
 def fetch_article_body(url, char_limit=1500):
     """記事URLから本文テキストを取得して返す"""
@@ -1042,24 +1132,8 @@ _TRANSLATION_CACHE = {}
 def _translate_batch(items_in):
     """items_in リストをAPIで翻訳し、結果リストを返す。失敗時は空リスト"""
     prompt = TRANSLATE_PROMPT_BASE + json.dumps(items_in, ensure_ascii=False)
-    body = {
-        "model": "claude-haiku-4-5",
-        "max_tokens": 2200,
-        "messages": [{"role": "user", "content": prompt}]
-    }
-    req = Request(
-        "https://api.anthropic.com/v1/messages",
-        data=json.dumps(body).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": API_KEY,
-            "anthropic-version": "2023-06-01",
-        },
-        method="POST",
-    )
-    with urlopen(req, timeout=20) as res:
-        result = json.loads(res.read())
-    text = result["content"][0]["text"].strip()
+    text = call_claude(prompt, max_tokens=2200)
+    text = text.strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
     if not text.startswith("["):
         match = re.search(r"\[[\s\S]*\]", text)
@@ -1550,13 +1624,26 @@ HTML = r"""<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>IT記事 投稿ジェネレーター</title>
+<!-- iPhone ホーム画面追加（PWA）用 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="記事投稿">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#ea580c">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; padding: 2rem 1rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; padding: calc(2rem + env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) calc(2rem + env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px)); }
   .container { max-width: 680px; margin: 0 auto; }
   h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .app-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: .45rem; }
+  .app-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; margin: 0; line-height: 1.25; }
+  .logout-link { flex-shrink: 0; font-size: .75rem; color: #999; text-decoration: none; border: 1px solid #e5e5e5; border-radius: 8px; padding: 4px 10px; white-space: nowrap; margin-top: 2px; }
+  .logout-link:hover { background: #fff; color: #555; }
   .subtitle { font-size: 13px; color: #888; margin-bottom: 1.5rem; }
   .section-label { font-size: 11px; font-weight: 600; color: #888; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 8px; margin-top: 4px; }
   .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.25rem; }
@@ -1606,7 +1693,7 @@ HTML = r"""<!DOCTYPE html>
   .sticky-gen-btn { font-size: 14px; padding: 10px 20px; border-radius: 10px; border: none; background: #1a1a1a; color: #fff; cursor: pointer; font-weight: 500; width: 100%; }
   .sticky-gen-btn:hover { opacity: .85; }
   .sticky-gen-btn:disabled { opacity: .4; cursor: not-allowed; }
-  body.has-sticky { padding-bottom: 210px; }
+  body.has-sticky { padding-bottom: calc(210px + env(safe-area-inset-bottom, 0px)); }
   .more-btn { font-size: 13px; padding: 8px 14px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; width: 100%; margin: 8px 0 10px; display: none; }
   .more-btn:hover { background: #f5f5f5; }
   .select-btn { font-size: 14px; padding: 9px 18px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; transition: all .15s; margin-bottom: 1.25rem; }
@@ -1630,6 +1717,11 @@ HTML = r"""<!DOCTYPE html>
   .action-row { display: flex; gap: 10px; flex-wrap: wrap; }
   .action-btn { font-size: 13px; padding: 9px 16px; border-radius: 8px; border: 1px solid #ddd; cursor: pointer; display: flex; align-items: center; gap: 6px; background: #fff; color: #1a1a1a; transition: all .15s; }
   .action-btn:hover { background: #f5f5f5; }
+  .img-prompt-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid #eee; }
+  .img-prompt-btn { font-size: 12px; padding: 7px 12px; border-radius: 8px; border: 1px solid #bfdbfe; color: #2563eb; background: #eff6ff; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  .img-prompt-btn:hover { background: #dbeafe; }
+  .img-prompt-box { display: none; background: #f9f9f9; border-radius: 8px; padding: .75rem; font-size: 12.5px; line-height: 1.6; margin-top: 8px; color: #444; word-break: break-word; }
+  .img-prompt-copy { font-size: 11px; padding: 3px 9px; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; margin-top: 6px; }
   .x-btn { background: #1a1a1a; color: #fff; border-color: #1a1a1a; margin-left: auto; font-weight: 500; }
   .x-btn:hover { opacity: .85; }
   .history-section { margin-top: 1.75rem; border-top: 1px solid #e5e5e5; padding-top: 1.25rem; display: none; }
@@ -1638,14 +1730,19 @@ HTML = r"""<!DOCTYPE html>
   .hi-slot { font-size: 11px; color: #bbb; flex-shrink: 0; }
   .hi-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hi-time { font-size: 11px; color: #bbb; flex-shrink: 0; }
-  .rss-badge { font-size: 10px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; border-radius: 100px; padding: 2px 8px; display: inline-block; margin-left: 8px; }
+  .rss-badge { font-size: 10px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; border-radius: 100px; padding: 2px 8px; display: inline-block; line-height: 1.35; }
+  @media (max-width: 420px) {
+    h1 { font-size: 19px; }
+    .app-header { align-items: flex-start; }
+    .logout-link { padding: 5px 10px; }
+  }
 </style>
 </head>
 <body>
 <div class="container">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.2rem">
-    <h1 style="margin:0">📰 IT記事 投稿ジェネレーター <span class="rss-badge">複数ソース版</span></h1>
-    <a href="/logout" style="font-size:.75rem;color:#999;text-decoration:none;border:1px solid #e5e5e5;border-radius:8px;padding:4px 10px;white-space:nowrap">ログアウト</a>
+  <div class="app-header">
+    <h1 class="app-title"><span>📰 IT記事 投稿ジェネレーター</span><span class="rss-badge">複数ソース版</span></h1>
+    <a href="/logout" class="logout-link">ログアウト</a>
   </div>
   <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得</p>
 
@@ -1720,6 +1817,11 @@ HTML = r"""<!DOCTYPE html>
       <button class="action-btn" id="copyBtn">📋 コピー</button>
       <button class="action-btn x-btn" id="xBtn">X で投稿</button>
     </div>
+    <div class="img-prompt-section">
+      <button class="img-prompt-btn" id="imgPromptBtn">🎨 画像生成プロンプトを作成</button>
+      <div class="img-prompt-box" id="imgPromptBox"></div>
+      <button class="img-prompt-copy" id="imgPromptCopyBtn" style="display:none">📋 プロンプトをコピー</button>
+    </div>
   </div>
 
   <div class="history-section" id="historySection">
@@ -1745,6 +1847,7 @@ let lastFetchInfo=null;
 let currentFetchRequestId=null;
 let currentFetchController=null;
 let fetchCancelled=false;
+let lastArticle=null, lastArticleBody='';
 
 function el(id){return document.getElementById(id);}
 function getTags(){return tags.filter(t=>t.on).map(t=>t.t).join(' ');}
@@ -1845,11 +1948,11 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword,
   throw lastError||new Error('記事が見つかりませんでした');
 }
 
-async function callProxy(messages){
+async function callProxy(messages, jsonMode){
   const r=await fetch('/api/claude',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({messages})
+    body:JSON.stringify(jsonMode ? {messages, json_mode:true} : {messages})
   });
   if(!r.ok){const t=await r.text();throw new Error(t);}
   return r.json();
@@ -2094,32 +2197,6 @@ el('selectBtn').onclick=async()=>{
       ? `記事本文（抜粋）:\n${articleBody}`
       : `RSS概要: ${art.summary||'概要なし'}`;
 
-    // 記事に合ったハッシュタグを自動生成
-    setStatus(true,'ハッシュタグを生成中...');
-    try{
-      const tagSource = articleBody || art.summary || art.title;
-      const tagData = await callProxy([{role:'user',content:`以下のIT記事に最適な日本語ハッシュタグを重要度順に3つだけ提案してください。
-記事タイトル: ${art.title}
-内容: ${tagSource.slice(0,400)}
-ルール:
-- 必ず # から始める
-- 日本語または一般的な英語技術用語（例: #AI #AWS #React）
-- 記事の具体的な内容を最もよく表すタグを優先（汎用すぎる #テック だけにしない）
-- 必ず3つ、JSON配列のみ返す。例: ["#生成AI","#LLM","#OpenAI"]`}]);
-      let tagText = tagData.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,'').trim();
-      const newTags = JSON.parse(tagText);
-      if(Array.isArray(newTags) && newTags.length){
-        // 既存タグを新しいタグで置き換え（重複除去・最大3つ）
-        const seen = new Set();
-        tags = newTags.filter(t=>typeof t==='string'&&t.startsWith('#')).slice(0,3).map(t=>{
-          const cleaned = t.trim().replace(/^#\s+/, '#').replace(/\s+/g, '');
-          if(seen.has(cleaned)) return null;
-          seen.add(cleaned);
-          return {t:cleaned, on:true};
-        }).filter(Boolean);
-      }
-    }catch(e){ console.warn('ハッシュタグ生成失敗', e); }
-
     setStatus(true,'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文+ハッシュタグを117文字以内に収める
     const includeOpinion=el('includeOpinion').checked;
@@ -2148,46 +2225,43 @@ el('selectBtn').onclick=async()=>{
 ${contextText}
 
 【ソース種別の書き方】
-- GitHub Releases: 何が変わったか・開発者への影響を具体的に1文
-- Docs更新: 仕様変更・新機能・開発者への影響を具体的に1文
+- GitHub Releases: 何が変わったか・開発者への影響を具体的に1〜2文
+- Docs更新: 仕様変更・新機能・開発者への影響を具体的に1〜2文
 - 公式X: 断定しすぎず「公式Xで確認」くらいの表現
-- RSSニュース/Blog: 記事の最も重要な要点を1〜2文で紹介${opinionInstruction}
+- RSSニュース/Blog: 記事の要点を具体的な数値や機能名を交えて2文程度で紹介${opinionInstruction}
 
-【制約】
+【文字数】
+- 日本語105〜115文字程度（短すぎず長すぎず）
+- 本文のみ回答
+
+【その他の制約】
 - 「速報」という言葉は絶対に使わない
-- ハッシュタグ・URLは不要
-- 日本語100文字以内
-- 本文のみ回答`}]);
+- ハッシュタグ・URLは不要`}]);
 
-    // 本文 + ハッシュタグ + URL を組み立て
+    // 本文 + URL を組み立て（ハッシュタグなし）
     const calcLen=(t)=>{const u=t.match(/https?:\/\/[^\s]+/g)||[];return xWeightedLen(t.replace(/https?:\/\/[^\s]+/g,''))+u.length*23;};
     let body = data.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-    const hashStr = getTags() ? ' '+getTags() : '';
     const urlStr  = shareUrl  ? '\n'+shareUrl  : '';
-    let tweet = body + hashStr + urlStr;
-
-    // Step1: オーバーならハッシュタグを後ろから1つずつ削除
-    const hashTags = (hashStr.trim()).split(/\s+/).filter(t=>t.startsWith('#'));
-    let usedTags = [...hashTags];
-    while(calcLen(tweet)>280 && usedTags.length>0){
-      usedTags.pop();
-      tweet = body + (usedTags.length ? ' '+usedTags.join(' ') : '') + urlStr;
-    }
+    let tweet = body + urlStr;
 
     // Step2: それでもオーバーなら Claude で本文を自動短縮
     if(calcLen(tweet)>280){
       setStatus(true,'文字数オーバー。本文を自動短縮中...');
       try{
         const over=calcLen(tweet);
-        const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLとハッシュタグは変えずに本文だけを短くしてください。
+        const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLは変えずに本文だけを短くしてください。
 文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計280以内。
-ハッシュタグ: ${usedTags.join(' ')||'なし'}
 URL: ${shareUrl}
 本文のみ回答してください。\n\n${body}`}]);
         const newBody=shortened.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-        tweet = newBody + (usedTags.length ? ' '+usedTags.join(' ') : '') + urlStr;
+        tweet = newBody + urlStr;
       }catch(e){ console.warn('自動短縮失敗',e); }
     }
+    lastArticle=art;
+    lastArticleBody=articleBody;
+    el('imgPromptBox').style.display='none';
+    el('imgPromptBox').textContent='';
+    el('imgPromptCopyBtn').style.display='none';
     el('resultHeader').innerHTML=`
       <span class="badge lang">${activeLang==='en'?'🌐 海外':'🇯🇵 国内'}</span>`;
     el('articleMeta').textContent=`${art.source}　${art.published}　${art.typeLabel||'RSSニュース'}・信頼度${art.trustScore||70}`;
@@ -2220,7 +2294,7 @@ el('shortenBtn').onclick=async()=>{
   if(calcLen2(cur)<=280)return;
   el('shortenBtn').disabled=true;setStatus(true,'短縮中...');
   try{
-    const data=await callProxy([{role:'user',content:`以下のX投稿文を文字数制限内に短縮してください。ルール: 日本語1文字=2カウント、英数字1文字=1カウント、URL=23カウント固定、合計280以内。ハッシュタグとURLは全て残し自然な日本語で。投稿文のみ回答。\n\n${cur}`}]);
+    const data=await callProxy([{role:'user',content:`以下のX投稿文を文字数制限内に短縮してください。ルール: 日本語1文字=2カウント、英数字1文字=1カウント、URL=23カウント固定、合計280以内。URLは全て残し自然な日本語で。投稿文のみ回答。\n\n${cur}`}]);
     el('tweetBox').innerText=data.text.trim();updateChar();
   }catch(e){showError('短縮失敗: '+e.message);}
   finally{setStatus(false);el('shortenBtn').disabled=false;}
@@ -2234,6 +2308,51 @@ el('backBtn').onclick=()=>{
     el('stickyBar').style.display='block';
     document.body.classList.add('has-sticky');
   }
+};
+
+el('imgPromptBtn').onclick=async()=>{
+  if(!lastArticle)return;
+  el('imgPromptBtn').disabled=true;
+  el('imgPromptBtn').textContent='生成中...';
+  try{
+    const source=lastArticleBody || lastArticle.summary || lastArticle.title;
+    const data=await callProxy([{role:'user',content:`以下のIT記事を、日本語の解説インフォグラフィック画像にするための構成要素を考えてください。SNSでよく見る「わかりやすい図解」投稿のような、見出し＋複数ステップ＋マスコットキャラクターのイラストを想定します。
+
+記事タイトル: ${lastArticle.title}
+内容: ${source.slice(0,400)}
+
+出力ルール:
+- JSON形式のみで回答する。説明や前置き、Markdownのコードブロックは一切不要
+- 形式: {"title_ja": "文字列", "sections": [{"label_ja": "文字列", "visual_en": "文字列"}, ...]}
+- title_ja: 画像上部に大きく表示する見出し。記事の要点を興味を引く一言でまとめた日本語（15〜25文字程度。例: "フィジカルAIってなに？「頭脳」から「身体」をもつ進化！"）
+- sections: 記事の内容を2〜4個の流れ・比較・要素に分解したもの。それぞれ:
+  - label_ja: そのステップ・要素を表す短い日本語ラベル（4〜10文字。例: "今までのAI"）
+  - visual_en: そのステップを視覚的に表すイラスト要素の英語説明（アイコンやマスコットロボットの動作など、具体的に）
+- 全体として「Before/After」「変化の3ステップ」など、左から右へ読み進められる構成にする`}], true);
+    let parsed;
+    try{ parsed = JSON.parse(data.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,'')); }
+    catch(e){ throw new Error('プロンプトの解析に失敗しました'); }
+    const sections=(parsed.sections||[]);
+    const sectionDesc=sections.map((s,i)=>`section ${i+1} showing ${s.visual_en}, with a Japanese text label reading "${s.label_ja}"`).join(', then connected by a simple arrow to ');
+    const finalPrompt = `A cute, colorful flat-illustration infographic in a hand-drawn Japanese explainer style, with a cheerful mascot robot character. Large bold Japanese title text overlay at the top reading "${parsed.title_ja}". The image is divided into ${sections.length} horizontal sections read left to right: ${sectionDesc}. Bright color palette, sparkle and star decorations, clean vector-style icons, educational social-media infographic aesthetic, clean sans-serif Japanese typography. No photorealistic humans, celebrities, or brand logos.`;
+    el('imgPromptBox').textContent=finalPrompt;
+    el('imgPromptBox').style.display='block';
+    el('imgPromptCopyBtn').style.display='inline-block';
+  }catch(e){
+    showError('画像プロンプト生成に失敗: '+e.message);
+  }finally{
+    el('imgPromptBtn').disabled=false;
+    el('imgPromptBtn').textContent='🎨 画像生成プロンプトを作成';
+  }
+};
+
+el('imgPromptCopyBtn').onclick=async()=>{
+  try{
+    await navigator.clipboard.writeText(el('imgPromptBox').textContent);
+    const orig=el('imgPromptCopyBtn').textContent;
+    el('imgPromptCopyBtn').textContent='✅ コピーしました';
+    setTimeout(()=>{el('imgPromptCopyBtn').textContent=orig;},1500);
+  }catch(e){showError('コピーに失敗しました');}
 };
 
 el('copyBtn').onclick=async()=>{
@@ -2282,7 +2401,23 @@ class Handler(BaseHTTPRequestHandler):
     def _check_auth(self):
         if not BASIC_USER or not BASIC_PASS:
             return True  # 認証設定なしはスルー
-        return self._get_cookie(COOKIE_NAME) == VALID_TOKEN
+        return _validate_token(self._get_cookie(COOKIE_NAME))
+
+    def _auth_cookie_header(self):
+        return f"{COOKIE_NAME}={_make_token()}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_IDLE_TIMEOUT_SECONDS}"
+
+    def _clear_auth_cookie_header(self):
+        return f"{COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+
+    def _refresh_auth_cookie_if_needed(self):
+        if BASIC_USER and BASIC_PASS:
+            self.send_header("Set-Cookie", self._auth_cookie_header())
+
+    def _redirect_login_expired(self):
+        self.send_response(302)
+        self.send_header("Location", "/login")
+        self.send_header("Set-Cookie", self._clear_auth_cookie_header())
+        self.end_headers()
 
     def _redirect_login(self, error=False):
         page = LOGIN_HTML.replace("{error}", '<div class="error">ユーザー名またはパスワードが違います</div>' if error else "")
@@ -2306,7 +2441,7 @@ class Handler(BaseHTTPRequestHandler):
         if username == BASIC_USER and password == BASIC_PASS:
             self.send_response(302)
             self.send_header("Location", "/")
-            self.send_header("Set-Cookie", f"{COOKIE_NAME}={VALID_TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800")
+            self.send_header("Set-Cookie", self._auth_cookie_header())
             self.end_headers()
         else:
             self._redirect_login(error=True)
@@ -2314,7 +2449,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_logout(self):
         self.send_response(302)
         self.send_header("Location", "/login")
-        self.send_header("Set-Cookie", f"{COOKIE_NAME}=; Path=/; HttpOnly; Max-Age=0")
+        self.send_header("Set-Cookie", self._clear_auth_cookie_header())
         self.end_headers()
 
     def send_json(self, code, data):
@@ -2324,6 +2459,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
+        self._refresh_auth_cookie_if_needed()
         self.send_header("Content-Length", len(body))
         self.end_headers()
         self.wfile.write(body)
@@ -2337,11 +2473,31 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect_login()
         if self.path == "/logout":
             return self._handle_logout()
-        if not self._check_auth():
-            self.send_response(302)
-            self.send_header("Location", "/login")
+        # アイコン・マニフェストはOSが認証クッキー無しで取得するため認証前に配信
+        if self.path == "/apple-touch-icon.png" or self.path.startswith("/apple-touch-icon"):
+            icon = build_app_icon()
+            if not icon:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", len(icon))
             self.end_headers()
+            self.wfile.write(icon)
             return
+        if self.path == "/manifest.webmanifest":
+            body = WEB_MANIFEST.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", len(body))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if not self._check_auth():
+            return self._redirect_login_expired()
         if self.path == "/api/status":
             self.send_json(200, {"has_key": bool(API_KEY)})
         elif self.path.startswith("/api/cancel"):
@@ -2473,6 +2629,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
+            self._refresh_auth_cookie_if_needed()
             self.send_header("Content-Length", len(body))
             self.end_headers()
             self.wfile.write(body)
@@ -2481,10 +2638,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/login":
             return self._handle_login_post()
         if not self._check_auth():
-            self.send_response(302)
-            self.send_header("Location", "/login")
-            self.end_headers()
-            return
+            return self._redirect_login_expired()
         if self.path not in ("/api/claude", "/api/translate_candidates"):
             self.send_json(404, {"error": "not found"})
             return
@@ -2511,31 +2665,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(500, {"error": "ANTHROPIC_API_KEY が設定されていません"})
             return
 
-        body = {
-            "model": "claude-haiku-4-5",
-            "max_tokens": 800,
-            "messages": messages,
-        }
-
-        req = Request(
-            "https://api.anthropic.com/v1/messages",
-            data=json.dumps(body).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": API_KEY,
-                "anthropic-version": "2023-06-01",
-            },
-            method="POST",
-        )
+        prompt_text = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+        json_mode = bool(payload.get("json_mode"))
         try:
-            with urlopen(req, timeout=30) as res:
-                result = json.loads(res.read())
-            print(f"[API] usage={result.get('usage')}", flush=True)
-            text_block = next((b for b in result.get("content", []) if b.get("type") == "text"), None)
-            if not text_block:
-                self.send_json(500, {"error": "テキストブロックがありません"})
-                return
-            self.send_json(200, {"text": text_block["text"]})
+            text = call_claude(prompt_text, max_tokens=800, json_mode=json_mode)
+            self.send_json(200, {"text": text})
         except Exception as e:
             print(f"[ERROR] {e}", flush=True)
             self.send_json(500, {"error": str(e)})
@@ -2549,7 +2683,7 @@ def main():
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"✅ サーバー起動: {url}")
-    print(f"   モデル: claude-haiku-4-5（複数ソース版・低コスト）")
+    print(f"   モデル: {CLAUDE_MODEL}（複数ソース版・低コスト）")
     print("   Ctrl+C で終了\n")
 
     if os.environ.get("PORT") is None:  # ローカルのみブラウザ自動起動

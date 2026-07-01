@@ -43,8 +43,11 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 | `BASIC_USER` | 任意 | ログイン用ユーザー名 |
 | `BASIC_PASS` | 任意 | ログイン用パスワード |
 | `COOKIE_SECRET` | 任意 | ログインCookie署名用の秘密文字列 |
+| `SESSION_IDLE_TIMEOUT_SECONDS` | 任意 | 最終操作から自動ログアウトまでの秒数。未指定時は `1800`（30分） |
 
 `BASIC_USER` と `BASIC_PASS` が未設定の場合、ログイン認証は無効化されます。
+
+ログインCookieは最終操作時刻を署名付きトークンとして保持します。認証済みの画面表示/APIアクセスのたびにCookieを再発行し、最終操作から `SESSION_IDLE_TIMEOUT_SECONDS` 秒を超えると次回アクセス時にログイン画面へ戻します。
 
 ## 画面仕様
 
@@ -606,5 +609,42 @@ RenderでのWeb運用を想定しています。
 - 同一URLや同じタイトルで複数配信された記事を重複表示しないように変更
 - `今日` 指定で残っていた最大期間への自動補完も停止し、レスポンス直前にも当日以外を除外する二重チェックを追加
 - Google Newsの同一ニュースを、見出しが異なる場合も主要語の一致で重複除外するように変更
+- 異なるRSSソース間（Google News以外）でも同一記事をトークン一致率で重複除外するように拡張
 - クラウド・AWSの海外・今日検索を補強するため、Google Newsのクラウド／DevOps限定フィードを追加
 - 全カテゴリの海外・今日検索を補強するため、カテゴリ別のGoogle Newsフィードを追加
+- Google News同士のトークン一致閾値を引き下げ（shared≥3&overlap≥0.4）、同一ニュースを複数媒体が異なる見出しで配信する重複をより積極的に除外
+- 投稿文へのハッシュタグ自動生成・付与を廃止し、本文＋URLのみ出力するように変更
+- ハッシュタグ削除で空いた文字枠を活かし、本文の目安を100文字以内から120〜130文字程度に拡大して内容を充実
+- 本文の文字数を最終的に105〜115文字程度に調整（一時的に125〜135文字へ拡大したが多すぎたため中間値に戻した）
+- iPhoneのホーム画面追加（PWA）に対応。apple-mobile-web-app系メタタグ・theme-color・manifestを追加し、アプリ名「記事投稿」・単独表示（Safari UI非表示）・ステータスバー設定を反映
+- ホーム画面アイコン（180x180 PNG）をPILで動的生成し `/apple-touch-icon.png` で配信、`/manifest.webmanifest` も追加（いずれも認証前に配信しOSが取得可能）
+- アイコンデザインを「執筆（ペン）」に決定。コーラル背景（#ea580c）に斜めの白いペン（ピンク消しゴム・濃紺の芯）。4倍解像度で描画→LANCZOS縮小でアンチエイリアス。theme-color/manifestのテーマ色もコーラルに統一
+- 【不具合修正】Render環境にはPillowが無く（requirements.txtは標準ライブラリのみの方針）、PIL依存のアイコン生成がサイレントに404していた。ローカルでPillowを使い事前生成したPNGをBase64文字列としてコードに埋め込み、配信時はデコードのみで完結するように変更。サードパーティ依存ゼロの方針を維持したまま解決
+- 【大きな変更】投稿文生成・記事タイトル翻訳をClaude API（claude-haiku-4-5）からGemini API（gemini-2.5-flash）に完全移行し、無料枠だけで運用できるようにした
+  - 環境変数を `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`（+ 任意で `GEMINI_MODEL`）に変更
+  - Gemini呼び出しは `call_gemini()` に集約。`thinkingConfig.thinkingBudget=0` でthinkingトークンを無効化しコスト・レイテンシを抑制（meal-fitプロジェクトの実装パターンを踏襲）
+  - 翻訳バッチ処理は `responseMimeType: "application/json"` でJSON強制出力に変更
+  - `/api/status` の `has_key` 判定もGEMINI_API_KEY基準に変更
+  - 使用するGeminiキーはpet-feeling-app・meal-fitとは別プロジェクトで新規発行し、無料枠（1,500回/日）を分離
+- 【重要な発見・要注意】現在使用しているGeminiキー（新規発行分）のプロジェクトは、`gemini-2.5-flash` だけでなく **`gemini-2.5-flash-lite` も無料枠の日次上限が実測20回/日**（`GenerateRequestsPerDayPerProjectPerModel-FreeTier` quotaValue=20、モデル問わず共通）。一般に案内されている1,500回/日よりずっと少なく、通常利用でも簡単に枯渇しうる。デフォルトモデルは `gemini-2.5-flash-lite` のままにしているが、これはレイテンシ・thinking無効化の観点での選択であり、クォータ問題の根本解決ではない点に注意
+  - 日次上限に達すると `HTTP Error 429: Too Many Requests` としてエラー表示される（自動リトライは無し）
+  - 上限緩和にはGoogle Cloudプロジェクトの請求設定（billing）有効化が必要になる可能性が高い。無料のまま運用する場合は「1日に使える生成回数が実質20回程度」という制約を前提にする
+- 記事に合う画像を生成するための英語プロンプトを作成する機能を追加
+  - 投稿結果カード内に「🎨 画像生成プロンプトを作成」ボタンを追加（`imgPromptBtn`）
+  - `/api/claude` は `json_mode: true` を受け取ると `call_gemini()` に `responseMimeType: application/json` を指定して呼び出す（レスポンスをそのままプロンプト文として使わず構造化データとして取得し、クライアント側で最終プロンプトを組み立てる設計。Gemini任せの自由記述だと指示の重複・不整合が出たため）
+  - 実際の画像生成は行わず、プロンプト文の表示・コピーのみ（コスト・実装をシンプルに保つ判断）
+  - 投稿文生成のたびに `lastArticle` / `lastArticleBody` を更新し、画像プロンプト表示もリセットする
+  - 【スタイル変更】ユーザー提供の参考画像（「フィジカルAIってなに？」のような、見出し＋複数ステップのフロー＋マスコットロボット＋日本語ラベルを含む解説インフォグラフィック）に合わせ、単純な1枚イラスト＋短いキャッチコピーの形式から、本格的なインフォグラフィック構成に変更
+    - Geminiへの出力形式: `{"title_ja": "文字列", "sections": [{"label_ja": "文字列", "visual_en": "文字列"}, ...]}`
+    - `title_ja`: 画像上部の大見出し（15〜25文字程度、興味を引く言い回し）
+    - `sections`: 記事内容を2〜4個の流れ・比較・要素に分解。各要素に短い日本語ラベル（`label_ja`）と、それを表すイラスト要素の英語説明（`visual_en`）
+    - クライアント側で「左から右へ読み進める複数セクション＋矢印でつなぐ＋かわいいマスコットロボット＋日本語タイポグラフィ＋キラキラ装飾」という説明文に組み立てて最終プロンプトとする
+    - 人物の実写・著名人・ロゴ再現は避けるよう明記
+    - Gemini呼び出しは日次無料枠（20回/日、上記参照）を消費するため、実機での動作確認はPython側でパース・組み立てロジックのみ模擬検証済み（サンプルJSONで正しく1つの英語プロンプト文が組み上がることを確認）。実際のGemini出力での確認は無料枠回復後に推奨
+- 【Claudeに復元】Geminiの無料枠が実質20回/日と少なく安定運用が難しいため、投稿文生成・翻訳をClaude API（`claude-haiku-4-5`）に戻した。将来的に別のGeminiプロジェクト/キーで再度切り替える可能性はあるが、現時点では複雑な切り替え機構は作らずシンプルにClaude運用へ戻す方針
+  - `call_gemini()` を `call_claude()` に置き換え（`https://api.anthropic.com/v1/messages` を呼び出す従来の形に復元）
+  - 環境変数を `GEMINI_API_KEY` → `ANTHROPIC_API_KEY` に戻す
+  - 画像生成プロンプト機能（`json_mode`引数）はそのまま維持。ClaudeにはGeminiの`responseMimeType`のようなJSON強制モードが無いため、`json_mode`引数は現状未使用（プロンプト内でJSON形式を指示し、クライアント側の正規表現でコードフェンスを除去する既存方式で対応）
+  - `/api/status` の `has_key` 判定もANTHROPIC_API_KEY基準に戻す
+- 【レイアウト修正】iPhoneのPWA/ホーム画面表示でステータスバーと上部タイトルが重ならないよう、`viewport-fit=cover` 使用時の `safe-area-inset-top` / `safe-area-inset-bottom` を `body` と固定下部バーに反映。ヘッダーも `.app-header` / `.app-title` / `.logout-link` のCSSクラス化により、狭い画面でタイトル・バッジ・ログアウトが詰まらず自然に折り返すように変更
+- 【認証修正】最終操作から30分で自動ログアウトするアイドルタイムアウトを追加。従来は固定トークンCookieを7日間保持していたが、現在はCookie値に最終操作時刻とHMAC署名を持たせ、認証済みの画面/APIアクセスごとにCookieを再発行して期限を延長する。30分以上操作がない場合は次回アクセス時にCookieを削除して `/login` へリダイレクトする。タイムアウト秒数は `SESSION_IDLE_TIMEOUT_SECONDS` で変更可能

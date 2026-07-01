@@ -68,7 +68,7 @@ WEB_MANIFEST = json.dumps({
 }, ensure_ascii=False)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL   = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL   = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
 def call_gemini(prompt_text, max_tokens=800, json_mode=False):
     """Gemini APIにプロンプトを送りテキストを返す。無料枠運用のためthinkingは無効化。"""
@@ -1699,6 +1699,11 @@ HTML = r"""<!DOCTYPE html>
   .action-row { display: flex; gap: 10px; flex-wrap: wrap; }
   .action-btn { font-size: 13px; padding: 9px 16px; border-radius: 8px; border: 1px solid #ddd; cursor: pointer; display: flex; align-items: center; gap: 6px; background: #fff; color: #1a1a1a; transition: all .15s; }
   .action-btn:hover { background: #f5f5f5; }
+  .img-prompt-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid #eee; }
+  .img-prompt-btn { font-size: 12px; padding: 7px 12px; border-radius: 8px; border: 1px solid #bfdbfe; color: #2563eb; background: #eff6ff; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  .img-prompt-btn:hover { background: #dbeafe; }
+  .img-prompt-box { display: none; background: #f9f9f9; border-radius: 8px; padding: .75rem; font-size: 12.5px; line-height: 1.6; margin-top: 8px; color: #444; word-break: break-word; }
+  .img-prompt-copy { font-size: 11px; padding: 3px 9px; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; margin-top: 6px; }
   .x-btn { background: #1a1a1a; color: #fff; border-color: #1a1a1a; margin-left: auto; font-weight: 500; }
   .x-btn:hover { opacity: .85; }
   .history-section { margin-top: 1.75rem; border-top: 1px solid #e5e5e5; padding-top: 1.25rem; display: none; }
@@ -1789,6 +1794,11 @@ HTML = r"""<!DOCTYPE html>
       <button class="action-btn" id="copyBtn">📋 コピー</button>
       <button class="action-btn x-btn" id="xBtn">X で投稿</button>
     </div>
+    <div class="img-prompt-section">
+      <button class="img-prompt-btn" id="imgPromptBtn">🎨 画像生成プロンプトを作成</button>
+      <div class="img-prompt-box" id="imgPromptBox"></div>
+      <button class="img-prompt-copy" id="imgPromptCopyBtn" style="display:none">📋 プロンプトをコピー</button>
+    </div>
   </div>
 
   <div class="history-section" id="historySection">
@@ -1814,6 +1824,7 @@ let lastFetchInfo=null;
 let currentFetchRequestId=null;
 let currentFetchController=null;
 let fetchCancelled=false;
+let lastArticle=null, lastArticleBody='';
 
 function el(id){return document.getElementById(id);}
 function getTags(){return tags.filter(t=>t.on).map(t=>t.t).join(' ');}
@@ -2223,6 +2234,11 @@ URL: ${shareUrl}
         tweet = newBody + urlStr;
       }catch(e){ console.warn('自動短縮失敗',e); }
     }
+    lastArticle=art;
+    lastArticleBody=articleBody;
+    el('imgPromptBox').style.display='none';
+    el('imgPromptBox').textContent='';
+    el('imgPromptCopyBtn').style.display='none';
     el('resultHeader').innerHTML=`
       <span class="badge lang">${activeLang==='en'?'🌐 海外':'🇯🇵 国内'}</span>`;
     el('articleMeta').textContent=`${art.source}　${art.published}　${art.typeLabel||'RSSニュース'}・信頼度${art.trustScore||70}`;
@@ -2269,6 +2285,43 @@ el('backBtn').onclick=()=>{
     el('stickyBar').style.display='block';
     document.body.classList.add('has-sticky');
   }
+};
+
+el('imgPromptBtn').onclick=async()=>{
+  if(!lastArticle)return;
+  el('imgPromptBtn').disabled=true;
+  el('imgPromptBtn').textContent='生成中...';
+  try{
+    const source=lastArticleBody || lastArticle.summary || lastArticle.title;
+    const data=await callProxy([{role:'user',content:`以下のIT記事に合う、SNS投稿に添える画像を生成するための英語プロンプトを1つ作成してください。
+
+記事タイトル: ${lastArticle.title}
+内容: ${source.slice(0,400)}
+
+ルール:
+- 画像生成AI（Midjourney、DALL-E、Stable Diffusion、Imagenなど）でそのまま使える英語のプロンプト
+- 記事の具体的なテーマ・技術要素を反映した構図にする
+- スタイルは "flat illustration, tech blog header, clean minimal design, vibrant accent color" のような簡潔なスタイル指定を含める
+- 人物の実写・著名人・ロゴの再現は避け、抽象的・概念的なビジュアルにする
+- 1〜2文程度の英語プロンプトのみを返す（説明や前置きは不要）`}]);
+    el('imgPromptBox').textContent=data.text.trim();
+    el('imgPromptBox').style.display='block';
+    el('imgPromptCopyBtn').style.display='inline-block';
+  }catch(e){
+    showError('画像プロンプト生成に失敗: '+e.message);
+  }finally{
+    el('imgPromptBtn').disabled=false;
+    el('imgPromptBtn').textContent='🎨 画像生成プロンプトを作成';
+  }
+};
+
+el('imgPromptCopyBtn').onclick=async()=>{
+  try{
+    await navigator.clipboard.writeText(el('imgPromptBox').textContent);
+    const orig=el('imgPromptCopyBtn').textContent;
+    el('imgPromptCopyBtn').textContent='✅ コピーしました';
+    setTimeout(()=>{el('imgPromptCopyBtn').textContent=orig;},1500);
+  }catch(e){showError('コピーに失敗しました');}
 };
 
 el('copyBtn').onclick=async()=>{

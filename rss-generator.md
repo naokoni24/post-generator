@@ -624,3 +624,9 @@ RenderでのWeb運用を想定しています。
   - 翻訳バッチ処理は `responseMimeType: "application/json"` でJSON強制出力に変更
   - `/api/status` の `has_key` 判定もGEMINI_API_KEY基準に変更
   - 使用するGeminiキーはpet-feeling-app・meal-fitとは別プロジェクトで新規発行し、無料枠（1,500回/日）を分離
+- 【重要な発見・モデル変更】`gemini-2.5-flash` は無料枠の日次上限が実測で **20回/日** と非常に少なく（`GenerateRequestsPerDayPerProjectPerModel-FreeTier` quotaValue=20）、翻訳バッチだけで枯渇し429連発した。デフォルトモデルを `gemini-2.5-flash-lite` に変更して解消（同キーで連続呼び出しも安定）。`GEMINI_MODEL` 環境変数で上書き可能な設計は維持
+- 記事に合う画像を生成するための英語プロンプトを作成する機能を追加
+  - 投稿結果カード内に「🎨 画像生成プロンプトを作成」ボタンを追加（`imgPromptBtn`）。押すとGeminiが記事タイトル・本文/概要から、Midjourney/DALL-E/Stable Diffusion等でそのまま使える英語プロンプトを1〜2文で生成し表示（`imgPromptBox`）
+  - 実際の画像生成は行わず、プロンプト文の表示・コピーのみ（コスト・実装をシンプルに保つ判断）
+  - 人物の実写・著名人・ロゴ再現を避け、flat illustration / tech blog header調の抽象的ビジュアルになるようスタイル指定を固定
+  - 投稿文生成のたびに `lastArticle` / `lastArticleBody` を更新し、画像プロンプト表示もリセットする

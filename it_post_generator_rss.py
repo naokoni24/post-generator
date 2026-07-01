@@ -1897,6 +1897,46 @@ function setFetchCancelVisible(on){el('cancelFetchBtn').style.display=on?'inline
 function showError(msg){const eb=el('errorBox');eb.textContent=msg;eb.style.display='block';setTimeout(()=>eb.style.display='none',6000);}
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 
+const CLIENT_IDLE_TIMEOUT_MS=30*60*1000;
+let lastClientActivity=Date.now();
+let lastSessionCheckAt=0;
+
+function rememberClientActivity(){lastClientActivity=Date.now();}
+['click','keydown','touchstart','pointerdown'].forEach(evt=>{
+  document.addEventListener(evt,rememberClientActivity,{passive:true});
+});
+
+async function checkSessionOnResume(force=false){
+  const now=Date.now();
+  if(!force && now-lastSessionCheckAt<60000)return;
+  lastSessionCheckAt=now;
+  if(now-lastClientActivity>CLIENT_IDLE_TIMEOUT_MS){
+    window.location.href='/login';
+    return;
+  }
+  try{
+    const r=await fetch(`/api/status?_=${now}`,{
+      cache:'no-store',
+      credentials:'same-origin',
+      redirect:'follow'
+    });
+    const contentType=r.headers.get('content-type')||'';
+    if(r.redirected || r.url.includes('/login') || !contentType.includes('application/json')){
+      window.location.href='/login';
+      return;
+    }
+    await r.json();
+  }catch(e){
+    console.warn('セッション確認失敗',e);
+  }
+}
+
+window.addEventListener('pageshow',()=>checkSessionOnResume(true));
+window.addEventListener('focus',()=>checkSessionOnResume(false));
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible')checkSessionOnResume(false);
+});
+
 function newRequestId(){
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

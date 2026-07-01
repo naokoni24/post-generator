@@ -21,6 +21,7 @@ import re
 import hmac
 import hashlib
 import unicodedata
+import time
 try:
     from zoneinfo import ZoneInfo
     LOCAL_TZ = ZoneInfo("Asia/Tokyo")
@@ -115,12 +116,31 @@ BASIC_USER = os.environ.get("BASIC_USER", "")
 BASIC_PASS = os.environ.get("BASIC_PASS", "")
 COOKIE_SECRET = os.environ.get("COOKIE_SECRET", BASIC_PASS or "dev-secret")
 COOKIE_NAME = "it_post_session"
+SESSION_IDLE_TIMEOUT_SECONDS = int(os.environ.get("SESSION_IDLE_TIMEOUT_SECONDS", "1800"))
 
-def _make_token():
-    """サーバー再起動後も有効な固定トークンを生成"""
-    return hmac.new(COOKIE_SECRET.encode(), b"authenticated", hashlib.sha256).hexdigest()
+def _sign_session(ts):
+    return hmac.new(COOKIE_SECRET.encode(), f"authenticated:{ts}".encode(), hashlib.sha256).hexdigest()
 
-VALID_TOKEN = _make_token()
+def _make_token(now=None):
+    """最終操作時刻を含むログインCookieトークンを生成"""
+    ts = int(now if now is not None else time.time())
+    return f"{ts}.{_sign_session(ts)}"
+
+def _validate_token(token):
+    """Cookieトークンが正しく、最終操作からタイムアウトしていないか確認"""
+    if not token or "." not in token:
+        return False
+    ts_text, _, sig = token.partition(".")
+    try:
+        ts = int(ts_text)
+    except ValueError:
+        return False
+    expected = _sign_session(ts)
+    if not hmac.compare_digest(sig, expected):
+        return False
+    age = time.time() - ts
+    # 端末時計・サーバー時刻の小さな揺れは許容しつつ、30分無操作なら失効
+    return -60 <= age <= SESSION_IDLE_TIMEOUT_SECONDS
 
 LOGIN_HTML = """<!DOCTYPE html>
 <html lang="ja">
@@ -138,7 +158,7 @@ LOGIN_HTML = """<!DOCTYPE html>
 <link rel="manifest" href="/manifest.webmanifest">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:calc(1rem + env(safe-area-inset-top, 0px)) 1rem calc(1rem + env(safe-area-inset-bottom, 0px))}
   .card{background:#fff;border-radius:16px;padding:2.5rem 2rem;width:100%;max-width:360px;box-shadow:0 2px 20px rgba(0,0,0,.08)}
   h1{font-size:1.3rem;font-weight:700;margin-bottom:.4rem;text-align:center}
   p{font-size:.85rem;color:#888;text-align:center;margin-bottom:1.8rem}
@@ -1617,9 +1637,13 @@ HTML = r"""<!DOCTYPE html>
 <link rel="manifest" href="/manifest.webmanifest">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; padding: 2rem 1rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; padding: calc(2rem + env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) calc(2rem + env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px)); }
   .container { max-width: 680px; margin: 0 auto; }
   h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .app-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: .45rem; }
+  .app-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; margin: 0; line-height: 1.25; }
+  .logout-link { flex-shrink: 0; font-size: .75rem; color: #999; text-decoration: none; border: 1px solid #e5e5e5; border-radius: 8px; padding: 4px 10px; white-space: nowrap; margin-top: 2px; }
+  .logout-link:hover { background: #fff; color: #555; }
   .subtitle { font-size: 13px; color: #888; margin-bottom: 1.5rem; }
   .section-label { font-size: 11px; font-weight: 600; color: #888; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 8px; margin-top: 4px; }
   .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.25rem; }
@@ -1669,7 +1693,7 @@ HTML = r"""<!DOCTYPE html>
   .sticky-gen-btn { font-size: 14px; padding: 10px 20px; border-radius: 10px; border: none; background: #1a1a1a; color: #fff; cursor: pointer; font-weight: 500; width: 100%; }
   .sticky-gen-btn:hover { opacity: .85; }
   .sticky-gen-btn:disabled { opacity: .4; cursor: not-allowed; }
-  body.has-sticky { padding-bottom: 210px; }
+  body.has-sticky { padding-bottom: calc(210px + env(safe-area-inset-bottom, 0px)); }
   .more-btn { font-size: 13px; padding: 8px 14px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; width: 100%; margin: 8px 0 10px; display: none; }
   .more-btn:hover { background: #f5f5f5; }
   .select-btn { font-size: 14px; padding: 9px 18px; border-radius: 10px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; transition: all .15s; margin-bottom: 1.25rem; }
@@ -1706,14 +1730,19 @@ HTML = r"""<!DOCTYPE html>
   .hi-slot { font-size: 11px; color: #bbb; flex-shrink: 0; }
   .hi-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hi-time { font-size: 11px; color: #bbb; flex-shrink: 0; }
-  .rss-badge { font-size: 10px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; border-radius: 100px; padding: 2px 8px; display: inline-block; margin-left: 8px; }
+  .rss-badge { font-size: 10px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; border-radius: 100px; padding: 2px 8px; display: inline-block; line-height: 1.35; }
+  @media (max-width: 420px) {
+    h1 { font-size: 19px; }
+    .app-header { align-items: flex-start; }
+    .logout-link { padding: 5px 10px; }
+  }
 </style>
 </head>
 <body>
 <div class="container">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.2rem">
-    <h1 style="margin:0">📰 IT記事 投稿ジェネレーター <span class="rss-badge">複数ソース版</span></h1>
-    <a href="/logout" style="font-size:.75rem;color:#999;text-decoration:none;border:1px solid #e5e5e5;border-radius:8px;padding:4px 10px;white-space:nowrap">ログアウト</a>
+  <div class="app-header">
+    <h1 class="app-title"><span>📰 IT記事 投稿ジェネレーター</span><span class="rss-badge">複数ソース版</span></h1>
+    <a href="/logout" class="logout-link">ログアウト</a>
   </div>
   <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得</p>
 
@@ -1790,8 +1819,8 @@ HTML = r"""<!DOCTYPE html>
     </div>
     <div class="img-prompt-section">
       <button class="img-prompt-btn" id="imgPromptBtn">🎨 画像生成プロンプトを作成</button>
-      <div class="img-prompt-box" id="imgPromptBox"></div>
       <button class="img-prompt-copy" id="imgPromptCopyBtn" style="display:none">📋 プロンプトをコピー</button>
+      <div class="img-prompt-box" id="imgPromptBox"></div>
     </div>
   </div>
 
@@ -1867,6 +1896,46 @@ function setStatus(on,txt){el('statusText').textContent=txt||'';el('statusBar').
 function setFetchCancelVisible(on){el('cancelFetchBtn').style.display=on?'inline-flex':'none';}
 function showError(msg){const eb=el('errorBox');eb.textContent=msg;eb.style.display='block';setTimeout(()=>eb.style.display='none',6000);}
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+
+const CLIENT_IDLE_TIMEOUT_MS=30*60*1000;
+let lastClientActivity=Date.now();
+let lastSessionCheckAt=0;
+
+function rememberClientActivity(){lastClientActivity=Date.now();}
+['click','keydown','touchstart','pointerdown'].forEach(evt=>{
+  document.addEventListener(evt,rememberClientActivity,{passive:true});
+});
+
+async function checkSessionOnResume(force=false){
+  const now=Date.now();
+  if(!force && now-lastSessionCheckAt<60000)return;
+  lastSessionCheckAt=now;
+  if(now-lastClientActivity>CLIENT_IDLE_TIMEOUT_MS){
+    window.location.href='/login';
+    return;
+  }
+  try{
+    const r=await fetch(`/api/status?_=${now}`,{
+      cache:'no-store',
+      credentials:'same-origin',
+      redirect:'follow'
+    });
+    const contentType=r.headers.get('content-type')||'';
+    if(r.redirected || r.url.includes('/login') || !contentType.includes('application/json')){
+      window.location.href='/login';
+      return;
+    }
+    await r.json();
+  }catch(e){
+    console.warn('セッション確認失敗',e);
+  }
+}
+
+window.addEventListener('pageshow',()=>checkSessionOnResume(true));
+window.addEventListener('focus',()=>checkSessionOnResume(false));
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible')checkSessionOnResume(false);
+});
 
 function newRequestId(){
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -2169,7 +2238,7 @@ el('selectBtn').onclick=async()=>{
       : `RSS概要: ${art.summary||'概要なし'}`;
 
     setStatus(true,'投稿文を生成中...');
-    // XはURLを常に23文字としてカウントする。本文+ハッシュタグを117文字以内に収める
+    // XはURLを常に23文字としてカウントする。本文はURL込みで280以内に収める
     const includeOpinion=el('includeOpinion').checked;
     const opinionStyleMap={
       impression: articleBody
@@ -2202,7 +2271,9 @@ ${contextText}
 - RSSニュース/Blog: 記事の要点を具体的な数値や機能名を交えて2文程度で紹介${opinionInstruction}
 
 【文字数】
-- 日本語105〜115文字程度（短すぎず長すぎず）
+- 日本語120〜125文字程度
+- 2〜3文で、記事の具体的な要点を薄めずに書く
+- 短すぎる投稿は禁止。要点・影響・感想/考察の順に情報量を持たせる
 - 本文のみ回答
 
 【その他の制約】
@@ -2214,6 +2285,29 @@ ${contextText}
     let body = data.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
     const urlStr  = shareUrl  ? '\n'+shareUrl  : '';
     let tweet = body + urlStr;
+
+    // 短すぎる場合は、X上限に収まる範囲で本文だけを一度だけ膨らませる
+    const bodyLen = calcLen(body);
+    if(bodyLen < 230){
+      setStatus(true,'投稿文を少し詳しく調整中...');
+      try{
+        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。記事の具体的な要点・利用者への影響・感想/考察を補って、日本語120〜125文字程度の2〜3文にしてください。
+URLとハッシュタグは不要。本文のみ回答。
+「速報」という言葉は使わない。
+
+記事タイトル: ${art.title}
+ソース: ${art.source}
+${contextText}
+
+現在の本文:
+${body}`}]);
+        const expandedBody=expanded.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
+        if(expandedBody && calcLen(expandedBody + urlStr) <= 280){
+          body = expandedBody;
+          tweet = body + urlStr;
+        }
+      }catch(e){ console.warn('本文拡張失敗',e); }
+    }
 
     // Step2: それでもオーバーなら Claude で本文を自動短縮
     if(calcLen(tweet)>280){
@@ -2305,7 +2399,7 @@ el('imgPromptBtn').onclick=async()=>{
     catch(e){ throw new Error('プロンプトの解析に失敗しました'); }
     const sections=(parsed.sections||[]);
     const sectionDesc=sections.map((s,i)=>`section ${i+1} showing ${s.visual_en}, with a Japanese text label reading "${s.label_ja}"`).join(', then connected by a simple arrow to ');
-    const finalPrompt = `A cute, colorful flat-illustration infographic in a hand-drawn Japanese explainer style, with a cheerful mascot robot character. Large bold Japanese title text overlay at the top reading "${parsed.title_ja}". The image is divided into ${sections.length} horizontal sections read left to right: ${sectionDesc}. Bright color palette, sparkle and star decorations, clean vector-style icons, educational social-media infographic aesthetic, clean sans-serif Japanese typography. No photorealistic humans, celebrities, or brand logos.`;
+    const finalPrompt = `Create a 16:9 horizontal image optimized for an X/Twitter single-image attachment, 1200x675 composition. Keep important elements inside a central safe area with generous margins. Use large simple icons and a clear visual hierarchy. A cute, colorful flat-illustration infographic in a hand-drawn Japanese explainer style, with a cheerful mascot robot character. Large bold Japanese title text overlay at the top reading "${parsed.title_ja}". The image is divided into ${sections.length} horizontal sections read left to right: ${sectionDesc}. Bright color palette, sparkle and star decorations, clean vector-style icons, educational social-media infographic aesthetic, clean sans-serif Japanese typography. No photorealistic humans, celebrities, or brand logos.`;
     el('imgPromptBox').textContent=finalPrompt;
     el('imgPromptBox').style.display='block';
     el('imgPromptCopyBtn').style.display='inline-block';
@@ -2372,7 +2466,23 @@ class Handler(BaseHTTPRequestHandler):
     def _check_auth(self):
         if not BASIC_USER or not BASIC_PASS:
             return True  # 認証設定なしはスルー
-        return self._get_cookie(COOKIE_NAME) == VALID_TOKEN
+        return _validate_token(self._get_cookie(COOKIE_NAME))
+
+    def _auth_cookie_header(self):
+        return f"{COOKIE_NAME}={_make_token()}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_IDLE_TIMEOUT_SECONDS}"
+
+    def _clear_auth_cookie_header(self):
+        return f"{COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+
+    def _refresh_auth_cookie_if_needed(self):
+        if BASIC_USER and BASIC_PASS:
+            self.send_header("Set-Cookie", self._auth_cookie_header())
+
+    def _redirect_login_expired(self):
+        self.send_response(302)
+        self.send_header("Location", "/login")
+        self.send_header("Set-Cookie", self._clear_auth_cookie_header())
+        self.end_headers()
 
     def _redirect_login(self, error=False):
         page = LOGIN_HTML.replace("{error}", '<div class="error">ユーザー名またはパスワードが違います</div>' if error else "")
@@ -2396,7 +2506,7 @@ class Handler(BaseHTTPRequestHandler):
         if username == BASIC_USER and password == BASIC_PASS:
             self.send_response(302)
             self.send_header("Location", "/")
-            self.send_header("Set-Cookie", f"{COOKIE_NAME}={VALID_TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800")
+            self.send_header("Set-Cookie", self._auth_cookie_header())
             self.end_headers()
         else:
             self._redirect_login(error=True)
@@ -2404,7 +2514,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_logout(self):
         self.send_response(302)
         self.send_header("Location", "/login")
-        self.send_header("Set-Cookie", f"{COOKIE_NAME}=; Path=/; HttpOnly; Max-Age=0")
+        self.send_header("Set-Cookie", self._clear_auth_cookie_header())
         self.end_headers()
 
     def send_json(self, code, data):
@@ -2414,6 +2524,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
+        self._refresh_auth_cookie_if_needed()
         self.send_header("Content-Length", len(body))
         self.end_headers()
         self.wfile.write(body)
@@ -2451,11 +2562,8 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if not self._check_auth():
-            self.send_response(302)
-            self.send_header("Location", "/login")
-            self.end_headers()
-            return
-        if self.path == "/api/status":
+            return self._redirect_login_expired()
+        if self.path.split("?", 1)[0] == "/api/status":
             self.send_json(200, {"has_key": bool(API_KEY)})
         elif self.path.startswith("/api/cancel"):
             from urllib.parse import urlparse, parse_qs
@@ -2586,6 +2694,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
+            self._refresh_auth_cookie_if_needed()
             self.send_header("Content-Length", len(body))
             self.end_headers()
             self.wfile.write(body)
@@ -2594,10 +2703,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/login":
             return self._handle_login_post()
         if not self._check_auth():
-            self.send_response(302)
-            self.send_header("Location", "/login")
-            self.end_headers()
-            return
+            return self._redirect_login_expired()
         if self.path not in ("/api/claude", "/api/translate_candidates"):
             self.send_json(404, {"error": "not found"})
             return

@@ -795,7 +795,7 @@ def articles_describe_same_story(first, second):
             len(shared) >= 4 and overlap >= 0.6 and bool(first_bigrams & second_bigrams)
         )
 
-def fetch_article_body(url, char_limit=1500):
+def fetch_article_body(url, char_limit=3000):
     """記事URLから本文テキストを取得して返す"""
     try:
         import urllib.request
@@ -2266,6 +2266,13 @@ el('selectBtn').onclick=async()=>{
 ソース: ${art.source}（${art.typeLabel||'RSSニュース'}）
 ${contextText}
 
+【最重要: 記事内容を具体的・正確に反映する】
+- 上記の記事本文（またはRSS概要）に実際に書かれている情報だけを根拠にする。タイトルからの推測や一般論で埋めない
+- 記事中の具体的な事実を最低2〜3個（固有名詞・数値・機能名・日付・引用など）を選び、必ず本文に盛り込む
+- 専門用語・略語が出てきたら、一般読者にも伝わるよう簡潔に噛み砕いて説明する（例: 「RAG（生成AIが外部情報を参照して回答する仕組み）」のように）
+- 「〜が発表された」「〜が話題」のような曖昧な言い回しだけで終わらせず、「何が」「どう変わった/どうすごいのか」を具体的に書く
+- 記事本文が取得できずRSS概要のみの場合は、憶測で詳細を作り込まず、分かる範囲を正確に書く
+
 【ソース種別の書き方】
 - GitHub Releases: 何が変わったか・開発者への影響を具体的に2〜4文
 - Docs更新: 仕様変更・新機能・開発者への影響を具体的に2〜4文
@@ -2274,7 +2281,7 @@ ${contextText}
 
 【文字数（X Premiumアカウントのため長文投稿可）】
 - 日本語350〜500文字程度を目安にする
-- 文字数を埋めるための水増しはせず、具体的な情報（数値・固有名詞・引用・背景）で自然に厚みを持たせる
+- 文字数を埋めるための水増しはせず、記事本文にある具体的な情報で自然に厚みを持たせる
 - 短すぎる投稿（150文字未満）は禁止
 - 改行を適度に使い、読みやすい段落分けにする
 - 本文のみ回答
@@ -2294,7 +2301,8 @@ ${contextText}
     if(bodyLen < 600){
       setStatus(true,'投稿文を少し詳しく調整中...');
       try{
-        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。記事の具体的な要点・背景・数値や固有名詞・利用者への影響・感想/考察を補って、日本語350〜500文字程度の3〜5文にしてください。
+        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事本文に実際に書かれている具体的な要点・背景・数値や固有名詞・利用者への影響・感想/考察を補って、日本語350〜500文字程度の3〜5文にしてください。
+記事に無い情報を推測で足さないこと。専門用語は簡潔に噛み砕いて説明すること。
 URLとハッシュタグは不要。本文のみ回答。
 「速報」という言葉は使わない。
 
@@ -2582,7 +2590,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": "url is required"})
                 return
             print(f"[記事取得] {url}", flush=True)
-            body_text = fetch_article_body(url)
+            body_text = fetch_article_body(url, char_limit=3000)
             self.send_json(200, {"body": body_text})
         elif self.path.startswith("/api/rss"):
             from urllib.parse import urlparse, parse_qs

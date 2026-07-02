@@ -1809,7 +1809,7 @@ HTML = r"""<!DOCTYPE html>
     <div class="tweet-label">投稿文（編集可）</div>
     <div class="tweet-box" id="tweetBox" contenteditable="true"></div>
     <div class="char-row">
-      <span class="char-count" id="charCount">0 / 280文字</span>
+      <span class="char-count" id="charCount">0 / 4000文字</span>
       <button class="shorten-btn" id="shortenBtn">✂️ 自動短縮</button>
     </div>
     <div class="action-row">
@@ -2013,17 +2013,19 @@ function xWeightedLen(text){
   return len;
 }
 
+const POST_CHAR_LIMIT=4000; // X Premium会員の投稿上限
+
 function updateChar(){
   const text=el('tweetBox').innerText;
   const urlRegex=/https?:\/\/[^\s]+/g;
   const urls=text.match(urlRegex)||[];
   const textWithoutUrls=text.replace(urlRegex,'');
   const len=xWeightedLen(textWithoutUrls)+urls.length*23;
-  const remaining=280-len;
-  el('charCount').textContent=`${len} / 280（残り ${remaining}）※日本語2・URL=23`;
-  el('charCount').className='char-count'+(len>280?' over':len>260?' warn':'');
-  el('xBtn').disabled=len>280;
-  el('shortenBtn').style.display=len>280?'inline-flex':'none';
+  const remaining=POST_CHAR_LIMIT-len;
+  el('charCount').textContent=`${len} / ${POST_CHAR_LIMIT}（残り ${remaining}）※日本語2・URL=23`;
+  el('charCount').className='char-count'+(len>POST_CHAR_LIMIT?' over':len>POST_CHAR_LIMIT*0.9?' warn':'');
+  el('xBtn').disabled=len>POST_CHAR_LIMIT;
+  el('shortenBtn').style.display=len>POST_CHAR_LIMIT?'inline-flex':'none';
 }
 el('tweetBox').oninput=updateChar;
 
@@ -2238,7 +2240,7 @@ el('selectBtn').onclick=async()=>{
       : `RSS概要: ${art.summary||'概要なし'}`;
 
     setStatus(true,'投稿文を生成中...');
-    // XはURLを常に23文字としてカウントする。本文はURL込みで280以内に収める
+    // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める
     const includeOpinion=el('includeOpinion').checked;
     const opinionStyleMap={
       impression: articleBody
@@ -2265,15 +2267,16 @@ el('selectBtn').onclick=async()=>{
 ${contextText}
 
 【ソース種別の書き方】
-- GitHub Releases: 何が変わったか・開発者への影響を具体的に1〜2文
-- Docs更新: 仕様変更・新機能・開発者への影響を具体的に1〜2文
+- GitHub Releases: 何が変わったか・開発者への影響を具体的に2〜4文
+- Docs更新: 仕様変更・新機能・開発者への影響を具体的に2〜4文
 - 公式X: 断定しすぎず「公式Xで確認」くらいの表現
-- RSSニュース/Blog: 記事の要点を具体的な数値や機能名を交えて2文程度で紹介${opinionInstruction}
+- RSSニュース/Blog: 背景・具体的な数値や固有名詞・実務への影響を交えて3〜5文で紹介${opinionInstruction}
 
-【文字数】
-- 日本語120〜125文字程度
-- 2〜3文で、記事の具体的な要点を薄めずに書く
-- 短すぎる投稿は禁止。要点・影響・感想/考察の順に情報量を持たせる
+【文字数（X Premiumアカウントのため長文投稿可）】
+- 日本語350〜500文字程度を目安にする
+- 文字数を埋めるための水増しはせず、具体的な情報（数値・固有名詞・引用・背景）で自然に厚みを持たせる
+- 短すぎる投稿（150文字未満）は禁止
+- 改行を適度に使い、読みやすい段落分けにする
 - 本文のみ回答
 
 【その他の制約】
@@ -2286,12 +2289,12 @@ ${contextText}
     const urlStr  = shareUrl  ? '\n'+shareUrl  : '';
     let tweet = body + urlStr;
 
-    // 短すぎる場合は、X上限に収まる範囲で本文だけを一度だけ膨らませる
+    // 短すぎる場合は、上限に収まる範囲で本文だけを一度だけ膨らませる
     const bodyLen = calcLen(body);
-    if(bodyLen < 230){
+    if(bodyLen < 600){
       setStatus(true,'投稿文を少し詳しく調整中...');
       try{
-        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。記事の具体的な要点・利用者への影響・感想/考察を補って、日本語120〜125文字程度の2〜3文にしてください。
+        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。記事の具体的な要点・背景・数値や固有名詞・利用者への影響・感想/考察を補って、日本語350〜500文字程度の3〜5文にしてください。
 URLとハッシュタグは不要。本文のみ回答。
 「速報」という言葉は使わない。
 
@@ -2302,7 +2305,7 @@ ${contextText}
 現在の本文:
 ${body}`}]);
         const expandedBody=expanded.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-        if(expandedBody && calcLen(expandedBody + urlStr) <= 280){
+        if(expandedBody && calcLen(expandedBody + urlStr) <= POST_CHAR_LIMIT){
           body = expandedBody;
           tweet = body + urlStr;
         }
@@ -2310,12 +2313,12 @@ ${body}`}]);
     }
 
     // Step2: それでもオーバーなら Claude で本文を自動短縮
-    if(calcLen(tweet)>280){
+    if(calcLen(tweet)>POST_CHAR_LIMIT){
       setStatus(true,'文字数オーバー。本文を自動短縮中...');
       try{
         const over=calcLen(tweet);
         const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLは変えずに本文だけを短くしてください。
-文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計280以内。
+文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計${POST_CHAR_LIMIT}以内。
 URL: ${shareUrl}
 本文のみ回答してください。\n\n${body}`}]);
         const newBody=shortened.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
@@ -2356,10 +2359,10 @@ URL: ${shareUrl}
 el('shortenBtn').onclick=async()=>{
   const cur=el('tweetBox').innerText;
   const calcLen2=(t)=>{const u=t.match(/https?:\/\/[^\s]+/g)||[];return xWeightedLen(t.replace(/https?:\/\/[^\s]+/g,''))+u.length*23;};
-  if(calcLen2(cur)<=280)return;
+  if(calcLen2(cur)<=POST_CHAR_LIMIT)return;
   el('shortenBtn').disabled=true;setStatus(true,'短縮中...');
   try{
-    const data=await callProxy([{role:'user',content:`以下のX投稿文を文字数制限内に短縮してください。ルール: 日本語1文字=2カウント、英数字1文字=1カウント、URL=23カウント固定、合計280以内。URLは全て残し自然な日本語で。投稿文のみ回答。\n\n${cur}`}]);
+    const data=await callProxy([{role:'user',content:`以下のX投稿文を文字数制限内に短縮してください。ルール: 日本語1文字=2カウント、英数字1文字=1カウント、URL=23カウント固定、合計${POST_CHAR_LIMIT}以内。URLは全て残し自然な日本語で。投稿文のみ回答。\n\n${cur}`}]);
     el('tweetBox').innerText=data.text.trim();updateChar();
   }catch(e){showError('短縮失敗: '+e.message);}
   finally{setStatus(false);el('shortenBtn').disabled=false;}
@@ -2733,7 +2736,7 @@ class Handler(BaseHTTPRequestHandler):
         prompt_text = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
         json_mode = bool(payload.get("json_mode"))
         try:
-            text = call_claude(prompt_text, max_tokens=800, json_mode=json_mode)
+            text = call_claude(prompt_text, max_tokens=2000, json_mode=json_mode)
             self.send_json(200, {"text": text})
         except Exception as e:
             print(f"[ERROR] {e}", flush=True)

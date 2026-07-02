@@ -163,7 +163,7 @@ LOGIN_HTML = """<!DOCTYPE html>
   h1{font-size:1.3rem;font-weight:700;margin-bottom:.4rem;text-align:center}
   p{font-size:.85rem;color:#888;text-align:center;margin-bottom:1.8rem}
   label{font-size:.8rem;color:#555;display:block;margin-bottom:.3rem}
-  input{width:100%;padding:.7rem 1rem;border:1px solid #e5e5e5;border-radius:10px;font-size:.95rem;margin-bottom:1rem;outline:none}
+  input{width:100%;padding:.7rem 1rem;border:1px solid #e5e5e5;border-radius:10px;font-size:16px;margin-bottom:1rem;outline:none}
   input:focus{border-color:#1a1a1a}
   button{width:100%;padding:.8rem;background:#1a1a1a;color:#fff;border:none;border-radius:10px;font-size:.95rem;font-weight:600;cursor:pointer}
   button:hover{background:#333}
@@ -1707,7 +1707,7 @@ HTML = r"""<!DOCTYPE html>
   .article-title a { color: inherit; text-decoration: none; }
   .article-title a:hover { text-decoration: underline; }
   .tweet-label { font-size: 11px; font-weight: 600; color: #888; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
-  .tweet-box { background: #f9f9f9; border-radius: 8px; padding: 1rem; font-size: 14px; line-height: 1.65; white-space: pre-wrap; word-break: break-all; margin-bottom: 6px; outline: none; min-height: 80px; border: 1px solid transparent; }
+  .tweet-box { background: #f9f9f9; border-radius: 8px; padding: 1rem; font-size: 16px; line-height: 1.65; white-space: pre-wrap; word-break: break-all; margin-bottom: 6px; outline: none; min-height: 80px; border: 1px solid transparent; }
   .tweet-box:focus { border-color: #ddd; }
   .char-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
   .char-count { font-size: 12px; color: #aaa; }

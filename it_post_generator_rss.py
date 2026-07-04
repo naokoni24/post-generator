@@ -41,6 +41,7 @@ class FeedRedirectHandler(HTTPRedirectHandler):
         return self.http_error_302(req, fp, code, msg, headers)
 
 _APP_ICON_CACHE = None
+APP_ICON_VERSION = "20260704c"
 
 # ホーム画面アイコン(180x180 PNG・「執筆」ペンデザイン)。
 # Render環境にPillow等のサードパーティ依存が無いため、事前生成したPNGをBase64で埋め込む。
@@ -69,7 +70,7 @@ WEB_MANIFEST = json.dumps({
     "background_color": "#f5f5f5",
     "theme_color": "#ea580c",
     "icons": [
-        {"src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
+        {"src": f"/apple-touch-icon.png?v={APP_ICON_VERSION}", "sizes": "180x180", "type": "image/png"},
     ],
 }, ensure_ascii=False)
 
@@ -158,9 +159,9 @@ LOGIN_HTML = """<!DOCTYPE html>
 <meta name="apple-mobile-web-app-title" content="記事投稿">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#ea580c">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" href="/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260704c">
+<link rel="icon" type="image/png" href="/apple-touch-icon.png?v=20260704c">
+<link rel="manifest" href="/manifest.webmanifest?v=20260704c">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:calc(1rem + env(safe-area-inset-top, 0px)) 1rem calc(1rem + env(safe-area-inset-bottom, 0px))}
@@ -1637,9 +1638,9 @@ HTML = r"""<!DOCTYPE html>
 <meta name="apple-mobile-web-app-title" content="記事投稿">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#ea580c">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" href="/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260704c">
+<link rel="icon" type="image/png" href="/apple-touch-icon.png?v=20260704c">
+<link rel="manifest" href="/manifest.webmanifest?v=20260704c">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; padding: calc(2rem + env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) calc(2rem + env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px)); }
@@ -2574,7 +2575,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(icon)
             return
-        if self.path == "/manifest.webmanifest":
+        if self.path.split("?", 1)[0] == "/manifest.webmanifest":
             body = WEB_MANIFEST.encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/manifest+json; charset=utf-8")

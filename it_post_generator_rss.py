@@ -168,7 +168,7 @@ LOGIN_HTML = """<!DOCTYPE html>
   h1{font-size:1.3rem;font-weight:700;margin-bottom:.4rem;text-align:center}
   p{font-size:.85rem;color:#888;text-align:center;margin-bottom:1.8rem}
   label{font-size:.8rem;color:#555;display:block;margin-bottom:.3rem}
-  input{width:100%;padding:.7rem 1rem;border:1px solid #e5e5e5;border-radius:10px;font-size:.95rem;margin-bottom:1rem;outline:none}
+  input{width:100%;padding:.7rem 1rem;border:1px solid #e5e5e5;border-radius:10px;font-size:16px;margin-bottom:1rem;outline:none}
   input:focus{border-color:#1a1a1a}
   button{width:100%;padding:.8rem;background:#1a1a1a;color:#fff;border:none;border-radius:10px;font-size:.95rem;font-weight:600;cursor:pointer}
   button:hover{background:#333}
@@ -800,7 +800,7 @@ def articles_describe_same_story(first, second):
             len(shared) >= 4 and overlap >= 0.6 and bool(first_bigrams & second_bigrams)
         )
 
-def fetch_article_body(url, char_limit=1500):
+def fetch_article_body(url, char_limit=3000):
     """記事URLから本文テキストを取得して返す"""
     try:
         import urllib.request
@@ -1712,7 +1712,7 @@ HTML = r"""<!DOCTYPE html>
   .article-title a { color: inherit; text-decoration: none; }
   .article-title a:hover { text-decoration: underline; }
   .tweet-label { font-size: 11px; font-weight: 600; color: #888; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
-  .tweet-box { background: #f9f9f9; border-radius: 8px; padding: 1rem; font-size: 14px; line-height: 1.65; white-space: pre-wrap; word-break: break-all; margin-bottom: 6px; outline: none; min-height: 80px; border: 1px solid transparent; }
+  .tweet-box { background: #f9f9f9; border-radius: 8px; padding: 1rem; font-size: 16px; line-height: 1.65; white-space: pre-wrap; word-break: break-all; margin-bottom: 6px; outline: none; min-height: 80px; border: 1px solid transparent; }
   .tweet-box:focus { border-color: #ddd; }
   .char-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
   .char-count { font-size: 12px; color: #aaa; }
@@ -1814,7 +1814,7 @@ HTML = r"""<!DOCTYPE html>
     <div class="tweet-label">投稿文（編集可）</div>
     <div class="tweet-box" id="tweetBox" contenteditable="true"></div>
     <div class="char-row">
-      <span class="char-count" id="charCount">0 / 280文字</span>
+      <span class="char-count" id="charCount">0 / 4000文字</span>
       <button class="shorten-btn" id="shortenBtn">✂️ 自動短縮</button>
     </div>
     <div class="action-row">
@@ -1844,7 +1844,7 @@ const OPINION_STYLES=[
   {k:'practical',  l:'🔧 実務目線', desc:'「現場ではこう使えそう」「エンジニア視点だとここがポイント」'},
   {k:'concern',    l:'⚠️ 懸念・考察', desc:'「一方でこんなリスクも」「まだ課題はあるが」など深掘り'},
 ];
-let activeOpinionStyle='impression';
+let activeOpinionStyle='practical';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
 let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
@@ -2018,17 +2018,19 @@ function xWeightedLen(text){
   return len;
 }
 
+const POST_CHAR_LIMIT=4000; // X Premium会員の投稿上限
+
 function updateChar(){
   const text=el('tweetBox').innerText;
   const urlRegex=/https?:\/\/[^\s]+/g;
   const urls=text.match(urlRegex)||[];
   const textWithoutUrls=text.replace(urlRegex,'');
   const len=xWeightedLen(textWithoutUrls)+urls.length*23;
-  const remaining=280-len;
-  el('charCount').textContent=`${len} / 280（残り ${remaining}）※日本語2・URL=23`;
-  el('charCount').className='char-count'+(len>280?' over':len>260?' warn':'');
-  el('xBtn').disabled=len>280;
-  el('shortenBtn').style.display=len>280?'inline-flex':'none';
+  const remaining=POST_CHAR_LIMIT-len;
+  el('charCount').textContent=`${len} / ${POST_CHAR_LIMIT}（残り ${remaining}）※日本語2・URL=23`;
+  el('charCount').className='char-count'+(len>POST_CHAR_LIMIT?' over':len>POST_CHAR_LIMIT*0.9?' warn':'');
+  el('xBtn').disabled=len>POST_CHAR_LIMIT;
+  el('shortenBtn').style.display=len>POST_CHAR_LIMIT?'inline-flex':'none';
 }
 el('tweetBox').oninput=updateChar;
 
@@ -2243,24 +2245,24 @@ el('selectBtn').onclick=async()=>{
       : `RSS概要: ${art.summary||'概要なし'}`;
 
     setStatus(true,'投稿文を生成中...');
-    // XはURLを常に23文字としてカウントする。本文はURL込みで280以内に収める
+    // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める
     const includeOpinion=el('includeOpinion').checked;
     const opinionStyleMap={
       impression: articleBody
-        ? `記事本文を読んだうえで、特に印象的な事実・数字・技術名を1つ具体的に引用し「〜が面白い」「〜は要注目」など筆者の感想として1文添える。抽象的な表現（「興味深い」「注目です」だけ）は避ける。`
-        : '記事タイトルから読み取れる特徴的な点に触れ、「〜が面白い」「〜は要注目」など1文添える。',
+        ? `記事本文を読んだうえで、特に印象的な事実・数字・技術名を1つ具体的に引用し「〜が面白い」「〜は要注目」など筆者の感想として1〜2文添える。抽象的な表現（「興味深い」「注目です」だけ）は避ける。`
+        : '記事タイトルから読み取れる特徴的な点に触れ、「〜が面白い」「〜は要注目」など1〜2文添える。',
       question: articleBody
-        ? `記事本文の具体的な内容（機能名・数値・変化）を踏まえ、「〜を使ってみた方いますか？」「あなたの現場では〜はどう変わりそう？」など読者が答えやすい具体的な問いかけを1文添える。`
-        : '記事テーマに関連した読者への問いかけを1文添える（「皆さんはどう思いますか？」など）。',
+        ? `記事本文の具体的な内容（機能名・数値・変化）を踏まえ、「〜を使ってみた方いますか？」「あなたの現場では〜はどう変わりそう？」など読者が答えやすい具体的な問いかけを1〜2文添える。`
+        : '記事テーマに関連した読者への問いかけを1〜2文添える（「皆さんはどう思いますか？」など）。',
       practical: articleBody
-        ? `記事本文から具体的な機能・変更点・数値を1つ取り上げ、「〜があれば現場で〇〇できそう」「〜はエンジニアにとって△△がポイント」など即実務に結びつく視点で1文添える。`
-        : '実務・エンジニア目線で「現場ではこう使えそう」「ここが実用上のポイント」など1文添える。',
+        ? `記事本文から具体的な機能・変更点・数値を1〜2個取り上げ、それが実際の業務・開発現場でどう活きるか（何ができるようになるか、何が楽になるか、導入時に注意すべき点は何か）を2〜3文で具体的に書く。「〜があれば現場で〇〇できそう」で終わらせず、なぜそう言えるかまで踏み込む。`
+        : '実務・エンジニア目線で「現場ではこう使えそう」「ここが実用上のポイント」など、理由も添えて2〜3文書く。',
       concern: articleBody
-        ? `記事本文の内容に基づき、「〜という点はまだ課題」「〜が普及するには〇〇が必要では」など根拠のある懸念・考察を1文添える。感情的・否定的にならず建設的なトーンで。`
-        : '「一方でこんなリスクも」「まだ課題はあるが」など懸念や考察を1文添える。',
+        ? `記事本文の内容に基づき、「〜という点はまだ課題」「〜が普及するには〇〇が必要では」など根拠のある懸念・考察を1〜2文添える。感情的・否定的にならず建設的なトーンで。`
+        : '「一方でこんなリスクも」「まだ課題はあるが」など懸念や考察を1〜2文添える。',
     };
     const opinionInstruction=includeOpinion
-      ? `\n\n【感想の書き方（厳守）】\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.impression}\n- 記事本文の具体的な情報を必ず1つ使うこと\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止\n- 投稿本文の末尾に自然につながるよう1文で書く` : '';
+      ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 「実務目線では、」「現場で見ると、」のような一言を起点に、下記スタイルの視点を明確に区切って書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
     // 本文のみ生成（ハッシュタグ・URLは後付け）
     const data=await callProxy([{role:'user',content:`以下の記事についてX投稿の本文を日本語で作成してください。
 
@@ -2269,16 +2271,24 @@ el('selectBtn').onclick=async()=>{
 ソース: ${art.source}（${art.typeLabel||'RSSニュース'}）
 ${contextText}
 
-【ソース種別の書き方】
-- GitHub Releases: 何が変わったか・開発者への影響を具体的に1〜2文
-- Docs更新: 仕様変更・新機能・開発者への影響を具体的に1〜2文
-- 公式X: 断定しすぎず「公式Xで確認」くらいの表現
-- RSSニュース/Blog: 記事の要点を具体的な数値や機能名を交えて2文程度で紹介${opinionInstruction}
+【最重要: 記事内容を具体的・正確に反映する】
+- 上記の記事本文（またはRSS概要）に実際に書かれている情報だけを根拠にする。タイトルからの推測や一般論で埋めない
+- 記事中の具体的な事実を最低2〜3個（固有名詞・数値・機能名・日付・引用など）を選び、必ず本文に盛り込む
+- 専門用語・略語が出てきたら、一般読者にも伝わるよう簡潔に噛み砕いて説明する（例: 「RAG（生成AIが外部情報を参照して回答する仕組み）」のように）
+- 「〜が発表された」「〜が話題」のような曖昧な言い回しだけで終わらせず、「何が」「どう変わった/どうすごいのか」を具体的に書く
+- 記事本文が取得できずRSS概要のみの場合は、憶測で詳細を作り込まず、分かる範囲を正確に書く
 
-【文字数】
-- 日本語120〜125文字程度
-- 2〜3文で、記事の具体的な要点を薄めずに書く
-- 短すぎる投稿は禁止。要点・影響・感想/考察の順に情報量を持たせる
+【ソース種別ごとの前半（記事内容説明）の書き方】
+- GitHub Releases: 何が変わったかを具体的に2〜3文
+- Docs更新: 仕様変更・新機能を具体的に2〜3文
+- 公式X: 断定しすぎず「公式Xで確認」くらいの表現
+- RSSニュース/Blog: 背景・具体的な数値や固有名詞を交えて2〜3文で紹介${opinionInstruction}
+
+【文字数（X Premiumアカウントのため長文投稿可）】
+- 日本語350〜500文字程度を目安にする
+- 文字数を埋めるための水増しはせず、記事本文にある具体的な情報で自然に厚みを持たせる
+- 短すぎる投稿（150文字未満）は禁止
+- 改行を適度に使い、読みやすい段落分けにする
 - 本文のみ回答
 
 【その他の制約】
@@ -2291,12 +2301,14 @@ ${contextText}
     const urlStr  = shareUrl  ? '\n'+shareUrl  : '';
     let tweet = body + urlStr;
 
-    // 短すぎる場合は、X上限に収まる範囲で本文だけを一度だけ膨らませる
+    // 短すぎる場合は、上限に収まる範囲で本文だけを一度だけ膨らませる
     const bodyLen = calcLen(body);
-    if(bodyLen < 230){
+    if(bodyLen < 600){
       setStatus(true,'投稿文を少し詳しく調整中...');
       try{
-        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。記事の具体的な要点・利用者への影響・感想/考察を補って、日本語120〜125文字程度の2〜3文にしてください。
+        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事本文に実際に書かれている具体的な要点・背景・数値や固有名詞を補い、日本語350〜500文字程度の3〜5文にしてください。
+${includeOpinion?`前半で記事内容を具体的に説明し、後半は「実務目線では、」のような一言を起点に${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}という視点を書く、2部構成にすること。`:''}
+記事に無い情報を推測で足さないこと。専門用語は簡潔に噛み砕いて説明すること。
 URLとハッシュタグは不要。本文のみ回答。
 「速報」という言葉は使わない。
 
@@ -2307,7 +2319,7 @@ ${contextText}
 現在の本文:
 ${body}`}]);
         const expandedBody=expanded.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-        if(expandedBody && calcLen(expandedBody + urlStr) <= 280){
+        if(expandedBody && calcLen(expandedBody + urlStr) <= POST_CHAR_LIMIT){
           body = expandedBody;
           tweet = body + urlStr;
         }
@@ -2315,12 +2327,12 @@ ${body}`}]);
     }
 
     // Step2: それでもオーバーなら Claude で本文を自動短縮
-    if(calcLen(tweet)>280){
+    if(calcLen(tweet)>POST_CHAR_LIMIT){
       setStatus(true,'文字数オーバー。本文を自動短縮中...');
       try{
         const over=calcLen(tweet);
         const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLは変えずに本文だけを短くしてください。
-文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計280以内。
+文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計${POST_CHAR_LIMIT}以内。
 URL: ${shareUrl}
 本文のみ回答してください。\n\n${body}`}]);
         const newBody=shortened.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
@@ -2361,10 +2373,10 @@ URL: ${shareUrl}
 el('shortenBtn').onclick=async()=>{
   const cur=el('tweetBox').innerText;
   const calcLen2=(t)=>{const u=t.match(/https?:\/\/[^\s]+/g)||[];return xWeightedLen(t.replace(/https?:\/\/[^\s]+/g,''))+u.length*23;};
-  if(calcLen2(cur)<=280)return;
+  if(calcLen2(cur)<=POST_CHAR_LIMIT)return;
   el('shortenBtn').disabled=true;setStatus(true,'短縮中...');
   try{
-    const data=await callProxy([{role:'user',content:`以下のX投稿文を文字数制限内に短縮してください。ルール: 日本語1文字=2カウント、英数字1文字=1カウント、URL=23カウント固定、合計280以内。URLは全て残し自然な日本語で。投稿文のみ回答。\n\n${cur}`}]);
+    const data=await callProxy([{role:'user',content:`以下のX投稿文を文字数制限内に短縮してください。ルール: 日本語1文字=2カウント、英数字1文字=1カウント、URL=23カウント固定、合計${POST_CHAR_LIMIT}以内。URLは全て残し自然な日本語で。投稿文のみ回答。\n\n${cur}`}]);
     el('tweetBox').innerText=data.text.trim();updateChar();
   }catch(e){showError('短縮失敗: '+e.message);}
   finally{setStatus(false);el('shortenBtn').disabled=false;}
@@ -2389,7 +2401,12 @@ el('imgPromptBtn').onclick=async()=>{
     const data=await callProxy([{role:'user',content:`以下のIT記事を、日本語の解説インフォグラフィック画像にするための構成要素を考えてください。SNSでよく見る「わかりやすい図解」投稿のような、見出し＋複数ステップ＋マスコットキャラクターのイラストを想定します。
 
 記事タイトル: ${lastArticle.title}
-内容: ${source.slice(0,400)}
+内容: ${source.slice(0,2500)}
+
+【最重要: 記事内容を正確に反映する】
+- title_ja・sectionsはすべて上記の記事本文（またはRSS概要）に実際に書かれている内容を根拠にする。タイトルからの推測や、記事に書かれていない一般的なAI/IT論で埋めない
+- sectionsは記事中の具体的な流れ・変化・比較を反映すること（例: 記事に書かれている「Before→After」「旧方式→新方式」「課題→解決策」など、実際の内容に沿った展開にする。テンプレート的な「今までのAI→新しいAI」のような使い回しにしない）
+- label_jaには記事中の固有名詞・製品名・数値などを可能な範囲で使う
 
 出力ルール:
 - JSON形式のみで回答する。説明や前置き、Markdownのコードブロックは一切不要
@@ -2398,7 +2415,7 @@ el('imgPromptBtn').onclick=async()=>{
 - sections: 記事の内容を2〜4個の流れ・比較・要素に分解したもの。それぞれ:
   - label_ja: そのステップ・要素を表す短い日本語ラベル（4〜10文字。例: "今までのAI"）
   - visual_en: そのステップを視覚的に表すイラスト要素の英語説明（アイコンやマスコットロボットの動作など、具体的に）
-- 全体として「Before/After」「変化の3ステップ」など、左から右へ読み進められる構成にする`}], true);
+- 全体として左から右へ読み進められる構成にする（記事の実際の展開に沿ったBefore/After・比較・変化のステップなど）`}], true);
     let parsed;
     try{ parsed = JSON.parse(data.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,'')); }
     catch(e){ throw new Error('プロンプトの解析に失敗しました'); }
@@ -2568,7 +2585,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not self._check_auth():
             return self._redirect_login_expired()
-        if self.path == "/api/status":
+        if self.path.split("?", 1)[0] == "/api/status":
             self.send_json(200, {"has_key": bool(API_KEY)})
         elif self.path.startswith("/api/cancel"):
             from urllib.parse import urlparse, parse_qs
@@ -2584,7 +2601,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": "url is required"})
                 return
             print(f"[記事取得] {url}", flush=True)
-            body_text = fetch_article_body(url)
+            body_text = fetch_article_body(url, char_limit=3000)
             self.send_json(200, {"body": body_text})
         elif self.path.startswith("/api/rss"):
             from urllib.parse import urlparse, parse_qs
@@ -2738,7 +2755,7 @@ class Handler(BaseHTTPRequestHandler):
         prompt_text = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
         json_mode = bool(payload.get("json_mode"))
         try:
-            text = call_claude(prompt_text, max_tokens=800, json_mode=json_mode)
+            text = call_claude(prompt_text, max_tokens=2000, json_mode=json_mode)
             self.send_json(200, {"text": text})
         except Exception as e:
             print(f"[ERROR] {e}", flush=True)

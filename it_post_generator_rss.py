@@ -41,6 +41,7 @@ class FeedRedirectHandler(HTTPRedirectHandler):
         return self.http_error_302(req, fp, code, msg, headers)
 
 _APP_ICON_CACHE = None
+APP_ICON_VERSION = "20260704c"
 
 # ホーム画面アイコン(180x180 PNG・「執筆」ペンデザイン)。
 # Render環境にPillow等のサードパーティ依存が無いため、事前生成したPNGをBase64で埋め込む。
@@ -49,9 +50,14 @@ _APP_ICON_B64 = (
 )
 
 def build_app_icon():
-    """ホーム画面用アイコン(180x180 PNG)を返す。事前生成したPNGをデコードするだけ。"""
+    """ホーム画面用アイコン(180x180 PNG)を返す。"""
     global _APP_ICON_CACHE
     if _APP_ICON_CACHE is None:
+        icon_path = os.path.join(os.path.dirname(__file__), "apple-touch-icon.png")
+        if os.path.exists(icon_path):
+            with open(icon_path, "rb") as f:
+                _APP_ICON_CACHE = f.read()
+            return _APP_ICON_CACHE
         import base64
         _APP_ICON_CACHE = base64.b64decode(_APP_ICON_B64)
     return _APP_ICON_CACHE
@@ -64,7 +70,7 @@ WEB_MANIFEST = json.dumps({
     "background_color": "#f5f5f5",
     "theme_color": "#ea580c",
     "icons": [
-        {"src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
+        {"src": f"/apple-touch-icon.png?v={APP_ICON_VERSION}", "sizes": "180x180", "type": "image/png"},
     ],
 }, ensure_ascii=False)
 
@@ -153,9 +159,9 @@ LOGIN_HTML = """<!DOCTYPE html>
 <meta name="apple-mobile-web-app-title" content="記事投稿">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#ea580c">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" href="/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260704c">
+<link rel="icon" type="image/png" href="/apple-touch-icon.png?v=20260704c">
+<link rel="manifest" href="/manifest.webmanifest?v=20260704c">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:calc(1rem + env(safe-area-inset-top, 0px)) 1rem calc(1rem + env(safe-area-inset-bottom, 0px))}
@@ -1632,9 +1638,9 @@ HTML = r"""<!DOCTYPE html>
 <meta name="apple-mobile-web-app-title" content="記事投稿">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#ea580c">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" href="/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260704c">
+<link rel="icon" type="image/png" href="/apple-touch-icon.png?v=20260704c">
+<link rel="manifest" href="/manifest.webmanifest?v=20260704c">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; padding: calc(2rem + env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px)) calc(2rem + env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px)); }
@@ -1842,7 +1848,8 @@ const OPINION_STYLES=[
 let activeOpinionStyle='practical';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
-let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
+const MAX_ORIGINAL_ARTICLES=3;
+let candidates=[], selectedIndices=[], postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
 let lastFetchInfo=null;
 let currentFetchRequestId=null;
 let currentFetchController=null;
@@ -2075,13 +2082,15 @@ function renderCands(){
     el('candidatesList').innerHTML='';
   }else{
     el('candidatesList').innerHTML=visibleCandidates.map(([i,a])=>{
-    const sel=selectedIdx===i;
+    const selOrder=selectedIndices.indexOf(i);
+    const sel=selOrder>=0;
     const title=escapeHtml(a.title);
     const summary=escapeHtml(a.summary);
     const source=escapeHtml(a.source);
     const published=escapeHtml(a.published);
     const typeLabel=escapeHtml(a.typeLabel||'RSSニュース');
     const url=escapeHtml(a.url);
+    const checkLabel=sel?(selectedIndices.length>1?String(selOrder+1):'✓'):'';
     return `<div class="cand-card${sel?' selected':''}" onclick="selectCand(${i})">
       <div class="cand-num">${i+1}</div>
       <div class="cand-body">
@@ -2095,13 +2104,13 @@ function renderCands(){
           <a class="article-link-btn" href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">参照URLを開く</a>
         </div>`:''}
       </div>
-      <div class="cand-check">${sel?'✓':''}</div>
+      <div class="cand-check">${checkLabel}</div>
     </div>`;
     }).join('');
   }
   // 記事選択後は、感想スタイルを投稿文生成ボタンの直上に表示
   const opPanel=el('opinionPanel');
-  if(selectedIdx>=0){
+  if(selectedIndices.length>=1){
     el('selectedOpinionSlot').appendChild(opPanel);
     opPanel.style.display='block';
   }else{
@@ -2113,13 +2122,38 @@ function renderCands(){
 }
 
 function selectCand(i){
-  selectedIdx=i;
-  el('selectBtn').disabled=false;
-  // スティッキーバー更新
-  el('stickyBar').style.display='block';
-  el('stickyTitle').textContent=candidates[i]?.title||'';
-  document.body.classList.add('has-sticky');
+  const pos=selectedIndices.indexOf(i);
+  if(pos>=0){
+    selectedIndices.splice(pos,1);
+  }else{
+    if(selectedIndices.length>=MAX_ORIGINAL_ARTICLES){
+      showError(`選択できる記事は最大${MAX_ORIGINAL_ARTICLES}件までです`);
+      return;
+    }
+    selectedIndices.push(i);
+  }
+  updateStickyBar();
   renderCands();
+}
+
+function updateStickyBar(){
+  const n=selectedIndices.length;
+  if(n===0){
+    el('selectBtn').disabled=true;
+    el('stickyBar').style.display='none';
+    document.body.classList.remove('has-sticky');
+    return;
+  }
+  el('selectBtn').disabled=false;
+  el('stickyBar').style.display='block';
+  document.body.classList.add('has-sticky');
+  if(n===1){
+    el('stickyTitle').textContent=candidates[selectedIndices[0]]?.title||'';
+    el('selectBtn').textContent='✏️ 投稿文を生成';
+  }else{
+    el('stickyTitle').textContent=`${n}件選択中（オリジナル記事を作成）`;
+    el('selectBtn').textContent=`🧩 ${n}件からオリジナル記事を作成`;
+  }
 }
 
 async function translateCandidatesInBackground(){
@@ -2133,10 +2167,10 @@ async function translateCandidatesInBackground(){
     });
     const data=await r.json();
     if(data.articles&&data.articles.length){
-      const selectedUrl=selectedIdx>=0?candidates[selectedIdx]?.url:null;
+      const selectedUrls=selectedIndices.map(i=>candidates[i]?.url).filter(Boolean);
       candidates=data.articles;
-      if(selectedUrl){
-        selectedIdx=candidates.findIndex(a=>a.url===selectedUrl);
+      if(selectedUrls.length){
+        selectedIndices=selectedUrls.map(u=>candidates.findIndex(a=>a.url===u)).filter(i=>i>=0);
       }
       renderCands();
     }
@@ -2173,7 +2207,7 @@ el('generateBtn').onclick=async()=>{
   fetchCancelled=false;
   currentFetchRequestId=newRequestId();
   currentFetchController=new AbortController();
-  selectedIdx=-1;visibleCount=INITIAL_VISIBLE_COUNT;el('selectBtn').disabled=true;
+  selectedIndices=[];visibleCount=INITIAL_VISIBLE_COUNT;el('selectBtn').disabled=true;
   el('opinionPanel').style.display='none';
   el('stickyBar').style.display='none';
   document.body.classList.remove('has-sticky');
@@ -2218,28 +2252,36 @@ el('generateBtn').onclick=async()=>{
 };
 
 el('selectBtn').onclick=async()=>{
-  if(selectedIdx<0)return;
-  const art=candidates[selectedIdx];
-  const shareUrl=shareArticleUrl(art);
+  if(!selectedIndices.length)return;
+  const articles=selectedIndices.map(i=>candidates[i]).filter(Boolean);
+  if(!articles.length)return;
+  const isMulti=articles.length>1;
+  const shareUrl=shareArticleUrl(articles[0]);
+  const genBtnLabel=isMulti?`🧩 ${articles.length}件からオリジナル記事を作成`:'✏️ 投稿文を生成';
   el('selectBtn').disabled=true;
   el('selectBtn').innerHTML='<div class="spinner"></div>生成中...';
   setStatus(true,'記事本文を取得中...');
-  const today=new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
   try{
-    // 記事本文を取得（失敗してもRSS要約にフォールバック）
-    let articleBody = '';
-    if(art.url && art.type !== 'official_x'){
-      try{
-        const br = await fetch(`/api/fetch_article?url=${encodeURIComponent(art.url)}`);
-        const bd = await br.json();
-        if(bd.body && bd.body.length > 100) articleBody = bd.body;
-      }catch(e){ console.warn('記事取得失敗', e); }
-    }
-    const contextText = articleBody
-      ? `記事本文（抜粋）:\n${articleBody}`
-      : `RSS概要: ${art.summary||'概要なし'}`;
+    // 各記事の本文を取得（失敗してもRSS要約にフォールバック）
+    const bodies=await Promise.all(articles.map(async(art)=>{
+      if(art.url && art.type !== 'official_x'){
+        try{
+          const br = await fetch(`/api/fetch_article?url=${encodeURIComponent(art.url)}`);
+          const bd = await br.json();
+          if(bd.body && bd.body.length > 100) return bd.body;
+        }catch(e){ console.warn('記事取得失敗', e); }
+      }
+      return '';
+    }));
+    const articleBody=bodies[0]||'';
+    const contextText=isMulti
+      ? articles.map((a,idx)=>{
+          const content=bodies[idx]?`内容:\n${bodies[idx]}`:`概要: ${a.summary||'概要なし'}`;
+          return `【記事${idx+1}】\nタイトル: ${a.title}\nソース: ${a.source}\n${content}`;
+        }).join('\n\n')
+      : (articleBody?`記事本文（抜粋）:\n${articleBody}`:`RSS概要: ${articles[0].summary||'概要なし'}`);
 
-    setStatus(true,'投稿文を生成中...');
+    setStatus(true, isMulti?'オリジナル記事を生成中...':'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める
     const includeOpinion=el('includeOpinion').checked;
     const opinionStyleMap={
@@ -2258,12 +2300,39 @@ el('selectBtn').onclick=async()=>{
     };
     const opinionInstruction=includeOpinion
       ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 「実務目線では、」「現場で見ると、」のような一言を起点に、下記スタイルの視点を明確に区切って書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
+    const targetLenText=isMulti?'日本語500〜800文字程度':'日本語350〜500文字程度';
+    const shortMinChars=isMulti?250:150;
     // 本文のみ生成（ハッシュタグ・URLは後付け）
-    const data=await callProxy([{role:'user',content:`以下の記事についてX投稿の本文を日本語で作成してください。
+    const mainPrompt=isMulti
+      ? `以下の複数の記事を統合し、独自の視点でまとめたX投稿の本文を日本語で作成してください。単なる並列紹介ではなく、複数記事を並べて見る価値が伝わる統合にしてください。
+
+${contextText}
+
+【最重要: 記事内容を具体的・正確に反映する】
+- 各記事に実際に書かれている情報だけを根拠にする。推測や一般論で埋めない
+- 複数記事に共通する論点・対照的な視点・時系列の変化などを見つけ、それを軸に統合する
+- 各記事から具体的な事実（固有名詞・数値・機能名・日付など）を最低1つずつ盛り込む
+- 専門用語・略語が出てきたら、一般読者にも伝わるよう簡潔に噛み砕いて説明する
+
+【構成（厳守）】
+1. 前半: 複数記事の内容を統合し、共通点/対比点を踏まえて具体的に説明する
+2. 後半: ${includeOpinion?`「実務目線では、」「現場で見ると、」のような一言を起点に、下記スタイルの視点を明確に区切って書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}`:'（感想は不要）'}
+
+【文字数（X Premiumアカウントのため長文投稿可）】
+- ${targetLenText}
+- 文字数を埋めるための水増しはせず、各記事にある具体的な情報で自然に厚みを持たせる
+- 短すぎる投稿（${shortMinChars}文字未満）は禁止
+- 改行を適度に使い、読みやすい段落分けにする
+- 本文のみ回答
+
+【その他の制約】
+- 「速報」という言葉は絶対に使わない
+- ハッシュタグ・URLは不要`
+      : `以下の記事についてX投稿の本文を日本語で作成してください。
 
 【記事情報】
-タイトル: ${art.title}
-ソース: ${art.source}（${art.typeLabel||'RSSニュース'}）
+タイトル: ${articles[0].title}
+ソース: ${articles[0].source}（${articles[0].typeLabel||'RSSニュース'}）
 ${contextText}
 
 【最重要: 記事内容を具体的・正確に反映する】
@@ -2280,35 +2349,36 @@ ${contextText}
 - RSSニュース/Blog: 背景・具体的な数値や固有名詞を交えて2〜3文で紹介${opinionInstruction}
 
 【文字数（X Premiumアカウントのため長文投稿可）】
-- 日本語350〜500文字程度を目安にする
+- ${targetLenText}を目安にする
 - 文字数を埋めるための水増しはせず、記事本文にある具体的な情報で自然に厚みを持たせる
-- 短すぎる投稿（150文字未満）は禁止
+- 短すぎる投稿（${shortMinChars}文字未満）は禁止
 - 改行を適度に使い、読みやすい段落分けにする
 - 本文のみ回答
 
 【その他の制約】
 - 「速報」という言葉は絶対に使わない
-- ハッシュタグ・URLは不要`}]);
+- ハッシュタグ・URLは不要`;
+    const data=await callProxy([{role:'user',content:mainPrompt}]);
 
     // 本文 + URL を組み立て（ハッシュタグなし）
     const calcLen=(t)=>{const u=t.match(/https?:\/\/[^\s]+/g)||[];return xWeightedLen(t.replace(/https?:\/\/[^\s]+/g,''))+u.length*23;};
     let body = data.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-    const urlStr  = shareUrl  ? '\n'+shareUrl  : '';
+    const urls=articles.map(a=>shareArticleUrl(a)).filter(Boolean);
+    const urlStr  = urls.map(u=>'\n'+u).join('');
     let tweet = body + urlStr;
 
     // 短すぎる場合は、上限に収まる範囲で本文だけを一度だけ膨らませる
+    const expandThreshold=isMulti?900:600;
     const bodyLen = calcLen(body);
-    if(bodyLen < 600){
+    if(bodyLen < expandThreshold){
       setStatus(true,'投稿文を少し詳しく調整中...');
       try{
-        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事本文に実際に書かれている具体的な要点・背景・数値や固有名詞を補い、日本語350〜500文字程度の3〜5文にしてください。
+        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事内容に実際に書かれている具体的な要点・背景・数値や固有名詞を補い、${targetLenText}の3〜5文にしてください。
 ${includeOpinion?`前半で記事内容を具体的に説明し、後半は「実務目線では、」のような一言を起点に${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}という視点を書く、2部構成にすること。`:''}
 記事に無い情報を推測で足さないこと。専門用語は簡潔に噛み砕いて説明すること。
 URLとハッシュタグは不要。本文のみ回答。
 「速報」という言葉は使わない。
 
-記事タイトル: ${art.title}
-ソース: ${art.source}
 ${contextText}
 
 現在の本文:
@@ -2328,21 +2398,31 @@ ${body}`}]);
         const over=calcLen(tweet);
         const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLは変えずに本文だけを短くしてください。
 文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計${POST_CHAR_LIMIT}以内。
-URL: ${shareUrl}
+URL: ${urls.join(', ')||'なし'}
 本文のみ回答してください。\n\n${body}`}]);
         const newBody=shortened.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
         tweet = newBody + urlStr;
       }catch(e){ console.warn('自動短縮失敗',e); }
     }
-    lastArticle=art;
-    lastArticleBody=articleBody;
+    const repArt=isMulti?{
+      title: articles.map(a=>a.title).join(' ／ '),
+      source: articles.map(a=>a.source).join('・'),
+      published: articles[0].published,
+      typeLabel: 'オリジナル記事',
+      trustScore: Math.min(...articles.map(a=>a.trustScore||70)),
+      url: articles[0].url,
+    }:articles[0];
+    lastArticle=repArt;
+    lastArticleBody=isMulti?bodies.filter(Boolean).join('\n\n'):articleBody;
     el('imgPromptBox').style.display='none';
     el('imgPromptBox').textContent='';
     el('imgPromptCopyBtn').style.display='none';
     el('resultHeader').innerHTML=`
       <span class="badge lang">${activeLang==='en'?'🌐 海外':'🇯🇵 国内'}</span>`;
-    el('articleMeta').textContent=`${art.source}　${art.published}　${art.typeLabel||'RSSニュース'}・信頼度${art.trustScore||70}`;
-    el('articleTitle').innerHTML=art.url?`<a href="${escapeHtml(art.url)}" target="_blank">${escapeHtml(art.title)}</a>`:escapeHtml(art.title);
+    el('articleMeta').textContent=isMulti
+      ? `${articles.length}件の記事を統合　${repArt.published}　オリジナル記事`
+      : `${repArt.source}　${repArt.published}　${repArt.typeLabel||'RSSニュース'}・信頼度${repArt.trustScore||70}`;
+    el('articleTitle').innerHTML=(!isMulti && repArt.url)?`<a href="${escapeHtml(repArt.url)}" target="_blank">${escapeHtml(repArt.title)}</a>`:escapeHtml(repArt.title);
     el('tweetBox').innerText=tweet;
     updateChar();
     setStatus(false);
@@ -2355,12 +2435,12 @@ URL: ${shareUrl}
     el('resultCard').style.display='block';
     el('xBtn').onclick=()=>{
       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(el('tweetBox').innerText)}`,'_blank');
-      markPosted(art,el('tweetBox').innerText);
+      markPosted(repArt,el('tweetBox').innerText);
     };
   }catch(e){
     setStatus(false);
     el('selectBtn').disabled=false;
-    el('selectBtn').textContent='✏️ 投稿文を生成';
+    el('selectBtn').textContent=genBtnLabel;
     showError('生成に失敗: '+e.message);
   }
 };
@@ -2381,10 +2461,7 @@ el('backBtn').onclick=()=>{
   el('resultCard').style.display='none';
   el('candidatesSection').style.display='block';
   el('opinionPanel').style.display='block';
-  if(selectedIdx>=0){
-    el('stickyBar').style.display='block';
-    document.body.classList.add('has-sticky');
-  }
+  updateStickyBar();
 };
 
 el('imgPromptBtn').onclick=async()=>{
@@ -2569,7 +2646,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(icon)
             return
-        if self.path == "/manifest.webmanifest":
+        if self.path.split("?", 1)[0] == "/manifest.webmanifest":
             body = WEB_MANIFEST.encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/manifest+json; charset=utf-8")

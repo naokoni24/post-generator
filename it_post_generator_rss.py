@@ -49,9 +49,14 @@ _APP_ICON_B64 = (
 )
 
 def build_app_icon():
-    """ホーム画面用アイコン(180x180 PNG)を返す。事前生成したPNGをデコードするだけ。"""
+    """ホーム画面用アイコン(180x180 PNG)を返す。"""
     global _APP_ICON_CACHE
     if _APP_ICON_CACHE is None:
+        icon_path = os.path.join(os.path.dirname(__file__), "apple-touch-icon.png")
+        if os.path.exists(icon_path):
+            with open(icon_path, "rb") as f:
+                _APP_ICON_CACHE = f.read()
+            return _APP_ICON_CACHE
         import base64
         _APP_ICON_CACHE = base64.b64decode(_APP_ICON_B64)
     return _APP_ICON_CACHE

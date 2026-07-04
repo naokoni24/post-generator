@@ -2358,7 +2358,7 @@ ${contextText}
         : '「一方でこんなリスクも」「まだ課題はあるが」など懸念や考察を1〜2文添える。',
     };
     const opinionInstruction=includeOpinion
-      ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 「実務目線では、」「現場で見ると、」のような一言を起点に、下記スタイルの視点を明確に区切って書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
+      ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 前半の内容を踏まえて視点を切り替え、下記スタイルの内容を書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かない。文章の内容・トーンの変化だけで視点の転換を示すこと\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
     const targetLenText=isMulti?'日本語500〜800文字程度':'日本語350〜500文字程度';
     const shortMinChars=isMulti?250:150;
     // 本文のみ生成（ハッシュタグ・URLは後付け）
@@ -2375,7 +2375,7 @@ ${contextText}
 
 【構成（厳守）】
 1. 前半: 複数記事の内容を統合し、共通点/対比点を踏まえて具体的に説明する
-2. 後半: ${includeOpinion?`「実務目線では、」「現場で見ると、」のような一言を起点に、下記スタイルの視点を明確に区切って書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}`:'（感想は不要）'}
+2. 後半: ${includeOpinion?`前半の内容を踏まえて視点を切り替え、下記スタイルの内容を書く（「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かず、文章の内容・トーンの変化だけで視点の転換を示すこと）\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}`:'（感想は不要）'}
 
 【文体（読みやすさ・惹きつけ方）】
 - 書き出しの1文で読者の目を引く（意外な数値・変化・対比・問いかけなど）。「〜が発表されました」のような単調な書き出しは避ける
@@ -2445,7 +2445,7 @@ ${contextText}
       setStatus(true,'投稿文を少し詳しく調整中...');
       try{
         const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事内容に実際に書かれている具体的な要点・背景・数値や固有名詞を補い、${targetLenText}の3〜5文にしてください。
-${includeOpinion?`前半で記事内容を具体的に説明し、後半は「実務目線では、」のような一言を起点に${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}という視点を書く、2部構成にすること。`:''}
+${includeOpinion?`前半で記事内容を具体的に説明し、後半は視点を切り替えて${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}という内容を書く、2部構成にすること。「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かないこと。`:''}
 記事に無い情報を推測で足さないこと。専門用語は簡潔に噛み砕いて説明すること。
 書き出しの1文で読者の目を引くこと。一文は40字前後で区切り、語りかけるような自然な日本語にすること（硬い報告文調は避ける）。1〜2文ごとに改行を入れること。
 URLとハッシュタグは不要。本文のみ回答。

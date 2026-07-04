@@ -346,6 +346,7 @@ RSS_FEEDS = {
 GITHUB_RELEASE_FEEDS = {
     "AI・機械学習": [
         {"url": "https://github.com/openai/openai-python/releases.atom", "source": "GitHub Releases: openai/openai-python"},
+        {"url": "https://github.com/ollama/ollama/releases.atom", "source": "GitHub Releases: ollama/ollama"},
     ],
     "クラウド・AWS": [
         {"url": "https://github.com/aws/aws-cdk/releases.atom", "source": "GitHub Releases: aws/aws-cdk"},

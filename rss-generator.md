@@ -600,6 +600,7 @@ RenderでのWeb運用を想定しています。
 - Renderのデプロイブランチをmaster→mainに修正
 - AIカテゴリに公式ブログ追加（Anthropic Blog、Google Gemini Blog、Microsoft AI Blog、NVIDIA Blog、Amazon Science、Apple ML Research、Mistral AI Blog）
 - 「公式優先」チェックボックスを追加（チェック時にofficial_blog/github_release/docs_updateを上位表示）
+- AI・機械学習カテゴリのGitHub Releasesソースが openai/openai-python の1件のみで手薄だったため `ollama/ollama` を追加（huggingface/transformers・langchainは過去にタイムアウト常発で削除済みのため再追加は見送り）
 - 「公式Xも見る」チェックボックスを削除（include_xは常にオフ）
 - info barの「追加取得あり」表示を削除
 - 検索中は「公式優先」チェックボックスを無効化

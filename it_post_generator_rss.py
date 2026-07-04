@@ -1491,13 +1491,26 @@ def get_articles(
     deduplicated = []
     for article in unique:
         identity_keys = article_identity_keys(article)
-        if (
-            not identity_keys
-            or any(key in seen for key in identity_keys)
-            or any(articles_describe_same_story(article, existing) for existing in deduplicated)
-        ):
+        if not identity_keys:
+            continue
+        match = None
+        if any(key in seen for key in identity_keys):
+            match = next(
+                (e for e in deduplicated if set(article_identity_keys(e)) & set(identity_keys)),
+                None,
+            )
+        if match is None:
+            match = next(
+                (e for e in deduplicated if articles_describe_same_story(article, e)),
+                None,
+            )
+        if match is not None:
+            # 他媒体でも同一ニュースが報道されている件数（自分自身を含む）を記録。
+            # ⑥類似確認（他媒体での既出度合い）のためのシグナルとしてクライアントに渡す。
+            match["coverageCount"] = match.get("coverageCount", 1) + 1
             continue
         seen.update(identity_keys)
+        article["coverageCount"] = 1
         deduplicated.append(article)
     duplicate_count = len(unique) - len(deduplicated)
     if duplicate_count:
@@ -1684,6 +1697,7 @@ HTML = r"""<!DOCTYPE html>
   .cand-meta a { color: #2563eb; text-decoration: none; }
   .cand-meta a:hover { text-decoration: underline; }
   .trust-badge { font-size: 11px; padding: 2px 7px; border-radius: 100px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+  .coverage-badge { font-size: 11px; padding: 2px 7px; border-radius: 100px; background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
   .article-link-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .article-link-btn { font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; text-decoration: none; line-height: 1; }
   .article-link-btn:hover { background: #f5f5f5; text-decoration: none; }
@@ -1710,6 +1724,10 @@ HTML = r"""<!DOCTYPE html>
   .badge.lang { background: #eff6ff; color: #2563eb; }
   .article-meta { font-size: 12px; color: #aaa; margin-bottom: 6px; }
   .article-title { font-size: 15px; font-weight: 500; line-height: 1.4; margin-bottom: 12px; }
+  .angle-outline-box { background: #f5f8ff; border: 1px solid #dbe6ff; border-radius: 8px; padding: .7rem .9rem; margin-bottom: 12px; font-size: 12.5px; color: #334; }
+  .angle-outline-box .angle-line { font-weight: 500; margin-bottom: 4px; }
+  .angle-outline-box .outline-list { margin: 0; padding-left: 1.1rem; color: #556; }
+  .angle-outline-box .outline-list li { margin-bottom: 2px; }
   .article-title a { color: inherit; text-decoration: none; }
   .article-title a:hover { text-decoration: underline; }
   .tweet-label { font-size: 11px; font-weight: 600; color: #888; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
@@ -1812,6 +1830,7 @@ HTML = r"""<!DOCTYPE html>
     <div id="resultHeader"></div>
     <div class="article-meta" id="articleMeta"></div>
     <div class="article-title" id="articleTitle"></div>
+    <div class="angle-outline-box" id="angleOutlineBox" style="display:none"></div>
     <div class="tweet-label">投稿文（編集可）</div>
     <div class="tweet-box" id="tweetBox" contenteditable="true"></div>
     <div class="char-row">
@@ -2099,6 +2118,7 @@ function renderCands(){
         <div class="cand-meta">
           <span>${source}</span><span>${published}</span>
           <span class="trust-badge">${typeLabel}・信頼度${a.trustScore||70}</span>
+          ${a.coverageCount>1?`<span class="coverage-badge">他${a.coverageCount-1}媒体でも報道</span>`:''}
         </div>
         ${a.url?`<div class="article-link-row">
           <a class="article-link-btn" href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">参照URLを開く</a>
@@ -2281,6 +2301,45 @@ el('selectBtn').onclick=async()=>{
         }).join('\n\n')
       : (articleBody?`記事本文（抜粋）:\n${articleBody}`:`RSS概要: ${articles[0].summary||'概要なし'}`);
 
+    // 他媒体での既出度合い（⑥類似確認）: 候補取得時に記録したcoverageCountを使う
+    const coverageNotes=articles.map(a=>{
+      const c=a.coverageCount||1;
+      return c>1?`「${a.title}」は他${c-1}媒体でも同様のニュースが確認できた（既出度が高い話題）`:null;
+    }).filter(Boolean);
+    const coverageNote=coverageNotes.length
+      ? `\n\n【他媒体での報道状況】\n${coverageNotes.join('\n')}\nこの話題は複数媒体が既に報じているため、単純な事実紹介だけに終わらない独自性のある切り口を選ぶこと。`
+      : '';
+
+    // ③ 独自の切り口を決定
+    setStatus(true,'独自の切り口を検討中...');
+    const angleData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}について、SNS投稿として書く際の「独自の切り口」を1つ決めてください。
+
+${contextText}${coverageNote}
+
+【ルール】
+- 単なる事実の要約ではなく、読者の興味を引く視点・観点を1つ選ぶ
+- 記事に実際に書かれている情報に基づくこと（推測や記事にない一般論で切り口を作らない）
+- 出力は切り口を表す日本語1文（30〜60文字程度）のみ。前置き・説明・「切り口:」のようなラベルは不要`}]);
+    const angle=angleData.text.trim().replace(/^切り口[：:]\s*/,'');
+
+    // ④ 記事構成を作成
+    setStatus(true,'記事構成を作成中...');
+    const outlineData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}と、決定した切り口をもとに、SNS投稿の構成を箇条書きで考えてください。
+
+${contextText}
+
+切り口: ${angle}
+
+【ルール】
+- 投稿がどう展開するかを表す2〜4個の見出し（各10〜20文字程度）を考える
+- 出力はJSON配列のみ。説明や前置き、Markdownのコードブロックは不要。例: ["○○の発表内容","△△という数値の意味","実務目線での考察"]`}], true);
+    let outline=[];
+    try{
+      outline=JSON.parse(outlineData.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,''));
+      if(!Array.isArray(outline))outline=[];
+    }catch(e){ console.warn('構成の解析に失敗',e); }
+    const angleOutlineInstruction=`\n\n【決定済みの切り口・構成（必ず反映する）】\n切り口: ${angle}${outline.length?`\n構成:\n${outline.map((o,i)=>`${i+1}. ${o}`).join('\n')}`:''}`;
+
     setStatus(true, isMulti?'オリジナル記事を生成中...':'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める
     const includeOpinion=el('includeOpinion').checked;
@@ -2327,7 +2386,7 @@ ${contextText}
 
 【その他の制約】
 - 「速報」という言葉は絶対に使わない
-- ハッシュタグ・URLは不要`
+- ハッシュタグ・URLは不要${angleOutlineInstruction}`
       : `以下の記事についてX投稿の本文を日本語で作成してください。
 
 【記事情報】
@@ -2357,7 +2416,7 @@ ${contextText}
 
 【その他の制約】
 - 「速報」という言葉は絶対に使わない
-- ハッシュタグ・URLは不要`;
+- ハッシュタグ・URLは不要${angleOutlineInstruction}`;
     const data=await callProxy([{role:'user',content:mainPrompt}]);
 
     // 本文 + URL を組み立て（ハッシュタグなし）
@@ -2423,6 +2482,8 @@ URL: ${urls.join(', ')||'なし'}
       ? `${articles.length}件の記事を統合　${repArt.published}　オリジナル記事`
       : `${repArt.source}　${repArt.published}　${repArt.typeLabel||'RSSニュース'}・信頼度${repArt.trustScore||70}`;
     el('articleTitle').innerHTML=(!isMulti && repArt.url)?`<a href="${escapeHtml(repArt.url)}" target="_blank">${escapeHtml(repArt.title)}</a>`:escapeHtml(repArt.title);
+    el('angleOutlineBox').innerHTML=`<div class="angle-line">🎯 ${escapeHtml(angle)}</div>${outline.length?`<ul class="outline-list">${outline.map(o=>`<li>${escapeHtml(o)}</li>`).join('')}</ul>`:''}`;
+    el('angleOutlineBox').style.display='block';
     el('tweetBox').innerText=tweet;
     updateChar();
     setStatus(false);

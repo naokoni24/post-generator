@@ -1134,7 +1134,31 @@ TRANSLATE_PROMPT_BASE = (
     "- JSON配列のみを返す。説明文やMarkdownは不要\n"
     '- 各要素は {"index": 数字, "title_ja": 文字列, "summary_ja": 文字列} の形にする\n\n'
 )
-_TRANSLATION_CACHE = {}
+TRANSLATION_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translation_cache.json")
+TRANSLATION_CACHE_MAX = 3000
+
+def _load_translation_cache():
+    try:
+        with open(TRANSLATION_CACHE_FILE, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+        return {(e[0], e[1]): (e[2], e[3]) for e in entries if len(e) == 4}
+    except Exception:
+        return {}
+
+def _save_translation_cache():
+    try:
+        entries = [[k[0], k[1], v[0], v[1]] for k, v in _TRANSLATION_CACHE.items()]
+        with open(TRANSLATION_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[翻訳キャッシュ] 保存失敗: {e}", flush=True)
+
+_TRANSLATION_CACHE = _load_translation_cache()
+
+def _cache_set_translation(key, value):
+    _TRANSLATION_CACHE[key] = value
+    if len(_TRANSLATION_CACHE) > TRANSLATION_CACHE_MAX:
+        del _TRANSLATION_CACHE[next(iter(_TRANSLATION_CACHE))]
 
 def _translate_batch(items_in):
     """items_in リストをAPIで翻訳し、結果リストを返す。失敗時は空リスト"""
@@ -1225,7 +1249,7 @@ def translate_titles(articles, max_items=20):
                 articles[orig_idx]["summary"] = summary_ja
             original = target_map.get(orig_idx)
             if original:
-                _TRANSLATION_CACHE[(original.get("title", ""), original.get("summary", ""))] = (title_ja, summary_ja)
+                _cache_set_translation((original.get("title", ""), original.get("summary", "")), (title_ja, summary_ja))
             applied.add(orig_idx)
         return applied
 
@@ -1251,11 +1275,12 @@ def translate_titles(articles, max_items=20):
             if repo and version:
                 articles[idx]["title_en"] = article.get("title", "")
                 articles[idx]["title"] = f"{repo} の {version} リリース"
-                _TRANSLATION_CACHE[(article.get("title", ""), article.get("summary", ""))] = (
-                    articles[idx]["title"],
-                    article.get("summary", ""),
+                _cache_set_translation(
+                    (article.get("title", ""), article.get("summary", "")),
+                    (articles[idx]["title"], article.get("summary", "")),
                 )
 
+    _save_translation_cache()
     print(f"[翻訳] 計{len(targets)}件を日本語表示に変換完了", flush=True)
     return articles
 

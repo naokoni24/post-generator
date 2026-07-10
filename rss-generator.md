@@ -401,6 +401,8 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 APIキーが未設定の場合、翻訳は実行されません。
 
+翻訳結果はプロセス内メモリだけでなく `translation_cache.json`（アプリと同じディレクトリ）にも永続化され、サーバー再起動後も同じ記事の再翻訳を避けます。キャッシュは最大3000件まで保持し、超過分は古いものから削除します（プロセス再デプロイ等でファイルごと消える場合は再度キャッシュされ直します）。
+
 ## 投稿文生成
 
 記事候補を選択後、参照URL先の本文を取得し、Claude APIでX投稿文を生成します。
@@ -601,6 +603,7 @@ RenderでのWeb運用を想定しています。
 - AIカテゴリに公式ブログ追加（Anthropic Blog、Google Gemini Blog、Microsoft AI Blog、NVIDIA Blog、Amazon Science、Apple ML Research、Mistral AI Blog）
 - 「公式優先」チェックボックスを追加（チェック時にofficial_blog/github_release/docs_updateを上位表示）
 - AI・機械学習カテゴリのGitHub Releasesソースが openai/openai-python の1件のみで手薄だったため `ollama/ollama` を追加（huggingface/transformers・langchainは過去にタイムアウト常発で削除済みのため再追加は見送り）
+- 翻訳キャッシュ（`_TRANSLATION_CACHE`）をプロセス内メモリのみからディスク永続化（`translation_cache.json`）に変更。サーバー再起動をまたいでも同じ記事の再翻訳を避けられるようにした。最大3000件・超過時は古いものから削除
 - 「公式Xも見る」チェックボックスを削除（include_xは常にオフ）
 - info barの「追加取得あり」表示を削除
 - 検索中は「公式優先」チェックボックスを無効化

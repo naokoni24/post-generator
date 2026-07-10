@@ -766,3 +766,8 @@ RenderでのWeb運用を想定しています。
   - Anthropicは公式RSSが存在しない（過去に取得不能で削除済み）ため、Google News検索（`site:anthropic.com`・3日以内）経由で公式発表を取得する「Anthropic Blog」ソースを追加
   - 「Anthropic Blog」を`OFFICIAL_BLOG_SOURCES`に登録し、OpenAI Blog・Google DeepMind Blog・Google AI Blog・Google Gemini Blogと同様に`official_blog`種別（信頼度90）として扱われるようにした
   - 「公式優先」チェックボックスの初期状態をオフからオン（デフォルトでチェック済み）に変更し、AI・機械学習カテゴリを開くたびに手動でチェックしなくても公式情報が上位表示されるようにした
+- 【翻訳失敗の無警告バグ修正】候補一覧が翻訳されない場合に、原因が画面にもサーバーログにも表示されにくかった問題を修正
+  - 候補一覧の表示自体は高速化のためカテゴリ閲覧時は`translate=False`で取得し、直後に`/api/translate_candidates`をバックグラウンド実行して日本語に置き換える設計（意図的な仕様）
+  - `_translate_batch()`のGemini呼び出しがバッチ単位で失敗すると、`translate_titles()`内部で例外を握りつぶして空リストを返すため、`/api/translate_candidates`側は例外を検知できず`warning`が返らず、画面には何のエラーも出ないまま英語のまま表示され続けていた
+  - `/api/translate_candidates`で「翻訳対象件数」と「翻訳後もなお翻訳対象のままの件数」を比較し、全滅している場合は明示的に`warning`を返すよう修正。`GEMINI_API_KEY`未設定の場合も専用メッセージを返す
+  - 実際のGeminiエラー内容はサーバーログの `[翻訳] バッチ N 失敗: ...` に出力されるため、翻訳が動かない場合はまずそこを確認する

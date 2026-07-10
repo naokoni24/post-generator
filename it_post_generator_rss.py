@@ -3024,9 +3024,25 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(articles, list):
                 self.send_json(400, {"error": "articles must be a list"})
                 return
+            needing_translation_before = sum(1 for a in articles if needs_translation(a))
             try:
+                if needing_translation_before > 0 and not API_KEY:
+                    self.send_json(200, {
+                        "articles": articles,
+                        "warning": "GEMINI_API_KEY が設定されていないため翻訳できません",
+                    })
+                    return
                 translated = translate_titles(articles)
-                self.send_json(200, {"articles": translated})
+                still_untranslated = sum(1 for a in translated if needs_translation(a))
+                if needing_translation_before > 0 and still_untranslated >= needing_translation_before:
+                    # バッチ翻訳がすべて失敗した場合、call_gemini側は例外を握りつぶすため
+                    # ここまで来ても気づかれない。明示的に警告を返す。
+                    self.send_json(200, {
+                        "articles": translated,
+                        "warning": "翻訳に失敗しました（サーバーログの[翻訳]バッチ失敗を確認してください）",
+                    })
+                else:
+                    self.send_json(200, {"articles": translated})
             except Exception as e:
                 print(f"[ERROR /api/translate_candidates] {e}", flush=True)
                 self.send_json(200, {"articles": articles, "warning": str(e)})

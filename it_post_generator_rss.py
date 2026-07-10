@@ -2139,8 +2139,13 @@ async function callProxy(messages, jsonMode){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(jsonMode ? {messages, json_mode:true} : {messages})
   });
-  if(!r.ok){const t=await r.text();throw new Error(t);}
-  return r.json();
+  const raw=await r.text();
+  let data;
+  try{ data=JSON.parse(raw); }catch(e){ data={error:raw}; }
+  if(!r.ok){
+    throw new Error(data.error||`APIエラー（${r.status}）`);
+  }
+  return data;
 }
 
 function xWeightedLen(text){
@@ -2435,7 +2440,9 @@ el('selectBtn').onclick=async()=>{
 
     // ③ 独自の切り口を決定
     setStatus(true,'独自の切り口を検討中...');
-    const angleData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}について、SNS投稿として書く際の「独自の切り口」を1つ決めてください。
+    let angle='記事の具体的な変化と、それが利用者・実務に与える影響';
+    try{
+      const angleData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}について、SNS投稿として書く際の「独自の切り口」を1つ決めてください。
 
 ${contextText}${coverageNote}
 
@@ -2443,11 +2450,17 @@ ${contextText}${coverageNote}
 - 単なる事実の要約ではなく、読者の興味を引く視点・観点を1つ選ぶ
 - 記事に実際に書かれている情報に基づくこと（推測や記事にない一般論で切り口を作らない）
 - 出力は切り口を表す日本語1文（30〜60文字程度）のみ。前置き・説明・「切り口:」のようなラベルは不要`}]);
-    const angle=angleData.text.trim().replace(/^切り口[：:]\s*/,'');
+      const generatedAngle=angleData.text.trim().replace(/^切り口[：:]\s*/,'');
+      if(generatedAngle)angle=generatedAngle;
+    }catch(e){
+      console.warn('切り口の生成に失敗。既定の切り口で続行します。',e);
+    }
 
     // ④ 記事構成を作成
     setStatus(true,'記事構成を作成中...');
-    const outlineData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}と、決定した切り口をもとに、SNS投稿の構成を箇条書きで考えてください。
+    let outline=[];
+    try{
+      const outlineData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}と、決定した切り口をもとに、SNS投稿の構成を箇条書きで考えてください。
 ${contextText}
 
 切り口: ${angle}
@@ -2455,11 +2468,9 @@ ${contextText}
 【ルール】
 - 投稿がどう展開するかを表す2〜4個の見出し（各10〜20文字程度）を考える
 - 出力はJSON配列のみ。説明や前置き、Markdownのコードブロックは不要。例: ["○○の発表内容","△△という数値の意味","実務目線での考察"]`}], true);
-    let outline=[];
-    try{
       outline=JSON.parse(outlineData.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,''));
       if(!Array.isArray(outline))outline=[];
-    }catch(e){ console.warn('構成の解析に失敗',e); }
+    }catch(e){ console.warn('構成の生成に失敗。構成なしで続行します。',e); }
     const angleOutlineInstruction=`\n\n【決定済みの切り口・構成（必ず反映する）】\n切り口: ${angle}${outline.length?`\n構成:\n${outline.map((o,i)=>`${i+1}. ${o}`).join('\n')}`:''}`;
     setStatus(true, isMulti?'オリジナル記事を生成中...':'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める

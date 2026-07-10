@@ -804,3 +804,9 @@ RenderでのWeb運用を想定しています。
   - これらを全て削除し、期間内の候補を`sort_articles_newest_first()`で新しい順に並べたうえで`filter_candidates_with_article_body()`（本文取得確認・予備候補での穴埋めは維持）にそのまま渡し、上位`limit`件を採用するだけのシンプルな方式に変更
   - 未使用になった`_article_pick_key`、`merge_result_cache`、`diversify_articles_by_source`、`prioritize_same_day_articles`、`_RESULT_CACHE`、`RESULT_CACHE_TTL`を削除
   - Previewで同一ソース（Hacker News）の記事が連続して上位に表示されることを含め、厳密な新しい順になっていることを確認済み
+- 【Google Newsソースが本文確認で軒並み除外される問題を修正】「クラウド・AWS」カテゴリで候補が1〜3件しか表示されない事象を調査
+  - 原因1: 選定ロジックの簡素化により「新しい順」を厳密に採用するようになった結果、更新頻度の高いGoogle News検索ソース（Google News Cloud Platforms/DevOps等）が新しい順の上位を占めやすくなった
+  - 原因2: Google NewsのRSS `<link>`は`https://news.google.com/rss/articles/...`というJSリダイレクト用のシェルページで、`fetch_article_body()`で本文を取得すると実質空（「Google News」の11文字のみ）になる。本文確認（`filter_candidates_with_article_body`）はこれを本文なしと判定して除外するため、上位を占めたGoogle Newsソースがことごとく弾かれ、有効な候補が数件しか残らなかった
+  - `filter_candidates_with_article_body`内の本文確認処理で、ソース名が"Google News"で始まる候補は本文取得を試みず無条件で有効とするよう修正（RSS概要をそのまま使う前提。投稿文生成時も本文取得は同様に実質空になるため、既存のRSS概要フォールバック処理がそのまま機能する）
+  - 合わせて、本文確認の検証プール数を`limit*2`→`limit*3`、並列数を6→20に拡大（RSS取得と同じくI/Oバウンドなので安全に増やせる）
+  - Previewで「クラウド・AWS」カテゴリが20件フル表示されることを確認済み

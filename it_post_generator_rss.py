@@ -931,7 +931,8 @@ def filter_candidates_with_article_body(candidates, limit, cancel_event=None):
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     # 最初に選ばれた候補を優先しつつ、本文取得不可の穴を補う予備候補も確認する。
-    check_limit = min(len(candidates), max(limit * 2, limit))
+    # 本文取得に失敗する候補が多いカテゴリでもlimit件を確保しやすいよう余裕を持たせる。
+    check_limit = min(len(candidates), max(limit * 3, limit))
     check_items = candidates[:check_limit]
     if not check_items:
         return []
@@ -942,12 +943,18 @@ def filter_candidates_with_article_body(candidates, limit, cancel_event=None):
             return article, False
         if urlsplit(url).scheme not in ("http", "https"):
             return article, False
+        if article.get("source", "").startswith("Google News"):
+            # Google NewsのURLはJSリダイレクト用のシェルページで、実記事の本文を
+            # 取得できない。実際の記事自体は存在するためRSS概要を使う前提で通す。
+            return article, True
         # 本文の有無だけを確認する。本文は同じURLの投稿文生成時にキャッシュから再利用される。
         body = fetch_article_body(url, char_limit=3000, timeout=6)
         return article, len(body.strip()) >= 180
 
     valid_urls = set()
-    with ThreadPoolExecutor(max_workers=min(len(check_items), 6)) as executor:
+    # I/Oバウンドな本文取得なのでワーカー数を増やしても安全。6並列では
+    # 検証対象が多い時に時間がかかりすぎ、有効な候補が集まりにくかった。
+    with ThreadPoolExecutor(max_workers=min(len(check_items), 20)) as executor:
         futures = [executor.submit(_check, article) for article in check_items]
         for future in as_completed(futures):
             ensure_not_cancelled(cancel_event)

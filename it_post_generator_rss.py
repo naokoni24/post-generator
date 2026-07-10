@@ -2142,6 +2142,11 @@ async function callProxy(messages, jsonMode){
   const raw=await r.text();
   let data;
   try{ data=JSON.parse(raw); }catch(e){ data={error:raw}; }
+  const contentType=(r.headers.get('content-type')||'').toLowerCase();
+  if(r.redirected && r.url.includes('/login') || !contentType.includes('application/json')){
+    window.location.href='/login';
+    throw new Error('ログインの有効期限が切れました。再ログインしてください');
+  }
   if(!r.ok){
     throw new Error(data.error||`APIエラー（${r.status}）`);
   }

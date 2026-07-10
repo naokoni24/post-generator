@@ -762,3 +762,7 @@ RenderでのWeb運用を想定しています。
   - 原因: `callProxy()`内の判定が `r.redirected && r.url.includes('/login') || !contentType.includes('application/json')` となっており、JavaScriptの演算子優先順位（`&&`が`||`より優先）により意図せず `(r.redirectedかつ/login)` または `(JSON以外)` のどちらかで発火していた。Renderのゲートウェイタイムアウト等でリダイレクトを伴わない非JSON応答（502等）が返ると、実際にはセッションが切れていないのに強制的にログイン画面へ遷移し、生成中のエラー内容が一切表示されずに「何も起きない」ように見えていた
   - 修正: `r.redirected && (r.url.includes('/login') || !contentType.includes('application/json'))` に変更し、実際にログインへリダイレクトされた場合のみ再ログイン扱いにする。リダイレクトを伴わない非JSONエラー（Gemini API側のエラー・ゲートウェイエラー等）は通常のエラーメッセージとして画面に表示されるようになった
   - なお、Gemini無料枠の実質上限（20回/日）に達している場合は本文生成が429エラーで失敗するため、生成が繰り返し失敗する場合はこの上限も要確認
+- 【公式AI情報の優先取得】OpenAI・Anthropic・GoogleのAI公式情報を優先的に取得するよう変更
+  - Anthropicは公式RSSが存在しない（過去に取得不能で削除済み）ため、Google News検索（`site:anthropic.com`・3日以内）経由で公式発表を取得する「Anthropic Blog」ソースを追加
+  - 「Anthropic Blog」を`OFFICIAL_BLOG_SOURCES`に登録し、OpenAI Blog・Google DeepMind Blog・Google AI Blog・Google Gemini Blogと同様に`official_blog`種別（信頼度90）として扱われるようにした
+  - 「公式優先」チェックボックスの初期状態をオフからオン（デフォルトでチェック済み）に変更し、AI・機械学習カテゴリを開くたびに手動でチェックしなくても公式情報が上位表示されるようにした

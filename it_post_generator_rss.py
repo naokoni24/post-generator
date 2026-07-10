@@ -237,6 +237,8 @@ RSS_FEEDS = {
         {"url": "https://blog.google/products/gemini/rss/", "source": "Google Gemini Blog"},
         {"url": "https://blogs.nvidia.com/feed/", "source": "NVIDIA Blog"},
         {"url": "https://www.amazon.science/index.rss", "source": "Amazon Science"},
+        # Anthropicは公式RSSが無いためGoogle News経由で公式発表を優先取得する
+        {"url": "https://news.google.com/rss/search?q=site:anthropic.com+when:3d&hl=en-US&gl=US&ceid=US:en", "source": "Anthropic Blog"},
     ],
     "クラウド・AWS": [
         # 国内
@@ -500,6 +502,7 @@ OFFICIAL_BLOG_SOURCES = {
     "Amazon Science",
     "OpenAI Blog",
     "OpenAI News / Docs",
+    "Anthropic Blog",
     "Google DeepMind Blog",
     "Hugging Face Blog",
     "Google AI Blog",
@@ -1899,7 +1902,7 @@ HTML = r"""<!DOCTYPE html>
 
   <div class="source-options">
     <label class="source-toggle">
-      <input type="checkbox" id="officialFirst">
+      <input type="checkbox" id="officialFirst" checked>
       <span>公式優先</span>
     </label>
     <label class="source-toggle" style="margin-left:8px">

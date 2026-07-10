@@ -2361,7 +2361,6 @@ ${contextText}${coverageNote}
     // ④ 記事構成を作成
     setStatus(true,'記事構成を作成中...');
     const outlineData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}と、決定した切り口をもとに、SNS投稿の構成を箇条書きで考えてください。
-
 ${contextText}
 
 切り口: ${angle}
@@ -2375,7 +2374,6 @@ ${contextText}
       if(!Array.isArray(outline))outline=[];
     }catch(e){ console.warn('構成の解析に失敗',e); }
     const angleOutlineInstruction=`\n\n【決定済みの切り口・構成（必ず反映する）】\n切り口: ${angle}${outline.length?`\n構成:\n${outline.map((o,i)=>`${i+1}. ${o}`).join('\n')}`:''}`;
-
     setStatus(true, isMulti?'オリジナル記事を生成中...':'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める
     const includeOpinion=el('includeOpinion').checked;

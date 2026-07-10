@@ -74,35 +74,45 @@ WEB_MANIFEST = json.dumps({
     ],
 }, ensure_ascii=False)
 
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = "claude-haiku-4-5"
+API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
-def call_claude(prompt_text, max_tokens=800, json_mode=False):
-    """Claude APIにプロンプトを送りテキストを返す。"""
+def call_gemini(prompt_text, max_tokens=800, json_mode=False):
+    """Gemini APIにプロンプトを送りテキストを返す。"""
+    generation_config = {"maxOutputTokens": max_tokens}
+    if json_mode:
+        generation_config["responseMimeType"] = "application/json"
+    # 2.5 Flash-Liteのthinkingを無効化し、速度と料金を抑える。
+    generation_config["thinkingConfig"] = {"thinkingBudget": 0}
     body = {
-        "model": CLAUDE_MODEL,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt_text}],
+        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+        "generationConfig": generation_config,
     }
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?{urlencode({'key': API_KEY})}"
+    )
     req = Request(
-        "https://api.anthropic.com/v1/messages",
+        endpoint,
         data=json.dumps(body).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": API_KEY,
-            "anthropic-version": "2023-06-01",
-        },
+        headers={"Content-Type": "application/json"},
         method="POST",
     )
     with urlopen(req, timeout=30) as res:
         result = json.loads(res.read())
-    usage = result.get("usage")
+    usage = result.get("usageMetadata")
     if usage:
-        print(f"[Claude] tokens in={usage.get('input_tokens')} out={usage.get('output_tokens')}", flush=True)
-    text_block = next((b for b in result.get("content", []) if b.get("type") == "text"), None)
-    if not text_block:
-        raise RuntimeError(f"Claude API: テキストブロックがありません (response={result})")
-    return text_block["text"]
+        print(
+            f"[Gemini] tokens in={usage.get('promptTokenCount')} "
+            f"out={usage.get('candidatesTokenCount')}",
+            flush=True,
+        )
+    candidates = result.get("candidates", [])
+    parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+    text = "".join(part.get("text", "") for part in parts if part.get("text"))
+    if not text:
+        raise RuntimeError(f"Gemini API: テキストがありません (response={result})")
+    return text
 PORT       = int(os.environ.get("PORT", 8765))
 RECENT_DAYS = 0
 RSS_FETCH_TIMEOUT = 4.0
@@ -346,6 +356,7 @@ RSS_FEEDS = {
 GITHUB_RELEASE_FEEDS = {
     "AI・機械学習": [
         {"url": "https://github.com/openai/openai-python/releases.atom", "source": "GitHub Releases: openai/openai-python"},
+        {"url": "https://github.com/ollama/ollama/releases.atom", "source": "GitHub Releases: ollama/ollama"},
     ],
     "クラウド・AWS": [
         {"url": "https://github.com/aws/aws-cdk/releases.atom", "source": "GitHub Releases: aws/aws-cdk"},
@@ -1133,12 +1144,36 @@ TRANSLATE_PROMPT_BASE = (
     "- JSON配列のみを返す。説明文やMarkdownは不要\n"
     '- 各要素は {"index": 数字, "title_ja": 文字列, "summary_ja": 文字列} の形にする\n\n'
 )
-_TRANSLATION_CACHE = {}
+TRANSLATION_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translation_cache.json")
+TRANSLATION_CACHE_MAX = 3000
+
+def _load_translation_cache():
+    try:
+        with open(TRANSLATION_CACHE_FILE, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+        return {(e[0], e[1]): (e[2], e[3]) for e in entries if len(e) == 4}
+    except Exception:
+        return {}
+
+def _save_translation_cache():
+    try:
+        entries = [[k[0], k[1], v[0], v[1]] for k, v in _TRANSLATION_CACHE.items()]
+        with open(TRANSLATION_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[翻訳キャッシュ] 保存失敗: {e}", flush=True)
+
+_TRANSLATION_CACHE = _load_translation_cache()
+
+def _cache_set_translation(key, value):
+    _TRANSLATION_CACHE[key] = value
+    if len(_TRANSLATION_CACHE) > TRANSLATION_CACHE_MAX:
+        del _TRANSLATION_CACHE[next(iter(_TRANSLATION_CACHE))]
 
 def _translate_batch(items_in):
     """items_in リストをAPIで翻訳し、結果リストを返す。失敗時は空リスト"""
     prompt = TRANSLATE_PROMPT_BASE + json.dumps(items_in, ensure_ascii=False)
-    text = call_claude(prompt, max_tokens=2200)
+    text = call_gemini(prompt, max_tokens=2200, json_mode=True)
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
     if not text.startswith("["):
@@ -1224,7 +1259,7 @@ def translate_titles(articles, max_items=20):
                 articles[orig_idx]["summary"] = summary_ja
             original = target_map.get(orig_idx)
             if original:
-                _TRANSLATION_CACHE[(original.get("title", ""), original.get("summary", ""))] = (title_ja, summary_ja)
+                _cache_set_translation((original.get("title", ""), original.get("summary", "")), (title_ja, summary_ja))
             applied.add(orig_idx)
         return applied
 
@@ -1250,11 +1285,12 @@ def translate_titles(articles, max_items=20):
             if repo and version:
                 articles[idx]["title_en"] = article.get("title", "")
                 articles[idx]["title"] = f"{repo} の {version} リリース"
-                _TRANSLATION_CACHE[(article.get("title", ""), article.get("summary", ""))] = (
-                    articles[idx]["title"],
-                    article.get("summary", ""),
+                _cache_set_translation(
+                    (article.get("title", ""), article.get("summary", "")),
+                    (articles[idx]["title"], article.get("summary", "")),
                 )
 
+    _save_translation_cache()
     print(f"[翻訳] 計{len(targets)}件を日本語表示に変換完了", flush=True)
     return articles
 
@@ -1491,13 +1527,26 @@ def get_articles(
     deduplicated = []
     for article in unique:
         identity_keys = article_identity_keys(article)
-        if (
-            not identity_keys
-            or any(key in seen for key in identity_keys)
-            or any(articles_describe_same_story(article, existing) for existing in deduplicated)
-        ):
+        if not identity_keys:
+            continue
+        match = None
+        if any(key in seen for key in identity_keys):
+            match = next(
+                (e for e in deduplicated if set(article_identity_keys(e)) & set(identity_keys)),
+                None,
+            )
+        if match is None:
+            match = next(
+                (e for e in deduplicated if articles_describe_same_story(article, e)),
+                None,
+            )
+        if match is not None:
+            # 他媒体でも同一ニュースが報道されている件数（自分自身を含む）を記録。
+            # ⑥類似確認（他媒体での既出度合い）のためのシグナルとしてクライアントに渡す。
+            match["coverageCount"] = match.get("coverageCount", 1) + 1
             continue
         seen.update(identity_keys)
+        article["coverageCount"] = 1
         deduplicated.append(article)
     duplicate_count = len(unique) - len(deduplicated)
     if duplicate_count:
@@ -1684,6 +1733,7 @@ HTML = r"""<!DOCTYPE html>
   .cand-meta a { color: #2563eb; text-decoration: none; }
   .cand-meta a:hover { text-decoration: underline; }
   .trust-badge { font-size: 11px; padding: 2px 7px; border-radius: 100px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+  .coverage-badge { font-size: 11px; padding: 2px 7px; border-radius: 100px; background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
   .article-link-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .article-link-btn { font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; text-decoration: none; line-height: 1; }
   .article-link-btn:hover { background: #f5f5f5; text-decoration: none; }
@@ -1710,6 +1760,10 @@ HTML = r"""<!DOCTYPE html>
   .badge.lang { background: #eff6ff; color: #2563eb; }
   .article-meta { font-size: 12px; color: #aaa; margin-bottom: 6px; }
   .article-title { font-size: 15px; font-weight: 500; line-height: 1.4; margin-bottom: 12px; }
+  .angle-outline-box { background: #f5f8ff; border: 1px solid #dbe6ff; border-radius: 8px; padding: .7rem .9rem; margin-bottom: 12px; font-size: 12.5px; color: #334; }
+  .angle-outline-box .angle-line { font-weight: 500; margin-bottom: 4px; }
+  .angle-outline-box .outline-list { margin: 0; padding-left: 1.1rem; color: #556; }
+  .angle-outline-box .outline-list li { margin-bottom: 2px; }
   .article-title a { color: inherit; text-decoration: none; }
   .article-title a:hover { text-decoration: underline; }
   .tweet-label { font-size: 11px; font-weight: 600; color: #888; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
@@ -1812,6 +1866,7 @@ HTML = r"""<!DOCTYPE html>
     <div id="resultHeader"></div>
     <div class="article-meta" id="articleMeta"></div>
     <div class="article-title" id="articleTitle"></div>
+    <div class="angle-outline-box" id="angleOutlineBox" style="display:none"></div>
     <div class="tweet-label">投稿文（編集可）</div>
     <div class="tweet-box" id="tweetBox" contenteditable="true"></div>
     <div class="char-row">
@@ -1848,7 +1903,8 @@ const OPINION_STYLES=[
 let activeOpinionStyle='practical';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
-let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
+const MAX_ORIGINAL_ARTICLES=3;
+let candidates=[], selectedIndices=[], postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
 let lastFetchInfo=null;
 let currentFetchRequestId=null;
 let currentFetchController=null;
@@ -2081,13 +2137,15 @@ function renderCands(){
     el('candidatesList').innerHTML='';
   }else{
     el('candidatesList').innerHTML=visibleCandidates.map(([i,a])=>{
-    const sel=selectedIdx===i;
+    const selOrder=selectedIndices.indexOf(i);
+    const sel=selOrder>=0;
     const title=escapeHtml(a.title);
     const summary=escapeHtml(a.summary);
     const source=escapeHtml(a.source);
     const published=escapeHtml(a.published);
     const typeLabel=escapeHtml(a.typeLabel||'RSSニュース');
     const url=escapeHtml(a.url);
+    const checkLabel=sel?(selectedIndices.length>1?String(selOrder+1):'✓'):'';
     return `<div class="cand-card${sel?' selected':''}" onclick="selectCand(${i})">
       <div class="cand-num">${i+1}</div>
       <div class="cand-body">
@@ -2096,18 +2154,19 @@ function renderCands(){
         <div class="cand-meta">
           <span>${source}</span><span>${published}</span>
           <span class="trust-badge">${typeLabel}・信頼度${a.trustScore||70}</span>
+          ${a.coverageCount>1?`<span class="coverage-badge">他${a.coverageCount-1}媒体でも報道</span>`:''}
         </div>
         ${a.url?`<div class="article-link-row">
           <a class="article-link-btn" href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">参照URLを開く</a>
         </div>`:''}
       </div>
-      <div class="cand-check">${sel?'✓':''}</div>
+      <div class="cand-check">${checkLabel}</div>
     </div>`;
     }).join('');
   }
   // 記事選択後は、感想スタイルを投稿文生成ボタンの直上に表示
   const opPanel=el('opinionPanel');
-  if(selectedIdx>=0){
+  if(selectedIndices.length>=1){
     el('selectedOpinionSlot').appendChild(opPanel);
     opPanel.style.display='block';
   }else{
@@ -2119,13 +2178,38 @@ function renderCands(){
 }
 
 function selectCand(i){
-  selectedIdx=i;
-  el('selectBtn').disabled=false;
-  // スティッキーバー更新
-  el('stickyBar').style.display='block';
-  el('stickyTitle').textContent=candidates[i]?.title||'';
-  document.body.classList.add('has-sticky');
+  const pos=selectedIndices.indexOf(i);
+  if(pos>=0){
+    selectedIndices.splice(pos,1);
+  }else{
+    if(selectedIndices.length>=MAX_ORIGINAL_ARTICLES){
+      showError(`選択できる記事は最大${MAX_ORIGINAL_ARTICLES}件までです`);
+      return;
+    }
+    selectedIndices.push(i);
+  }
+  updateStickyBar();
   renderCands();
+}
+
+function updateStickyBar(){
+  const n=selectedIndices.length;
+  if(n===0){
+    el('selectBtn').disabled=true;
+    el('stickyBar').style.display='none';
+    document.body.classList.remove('has-sticky');
+    return;
+  }
+  el('selectBtn').disabled=false;
+  el('stickyBar').style.display='block';
+  document.body.classList.add('has-sticky');
+  if(n===1){
+    el('stickyTitle').textContent=candidates[selectedIndices[0]]?.title||'';
+    el('selectBtn').textContent='✏️ 投稿文を生成';
+  }else{
+    el('stickyTitle').textContent=`${n}件選択中（オリジナル記事を作成）`;
+    el('selectBtn').textContent=`🧩 ${n}件からオリジナル記事を作成`;
+  }
 }
 
 async function translateCandidatesInBackground(){
@@ -2139,10 +2223,10 @@ async function translateCandidatesInBackground(){
     });
     const data=await r.json();
     if(data.articles&&data.articles.length){
-      const selectedUrl=selectedIdx>=0?candidates[selectedIdx]?.url:null;
+      const selectedUrls=selectedIndices.map(i=>candidates[i]?.url).filter(Boolean);
       candidates=data.articles;
-      if(selectedUrl){
-        selectedIdx=candidates.findIndex(a=>a.url===selectedUrl);
+      if(selectedUrls.length){
+        selectedIndices=selectedUrls.map(u=>candidates.findIndex(a=>a.url===u)).filter(i=>i>=0);
       }
       renderCands();
     }
@@ -2179,7 +2263,7 @@ el('generateBtn').onclick=async()=>{
   fetchCancelled=false;
   currentFetchRequestId=newRequestId();
   currentFetchController=new AbortController();
-  selectedIdx=-1;visibleCount=INITIAL_VISIBLE_COUNT;el('selectBtn').disabled=true;
+  selectedIndices=[];visibleCount=INITIAL_VISIBLE_COUNT;el('selectBtn').disabled=true;
   el('opinionPanel').style.display='none';
   el('stickyBar').style.display='none';
   document.body.classList.remove('has-sticky');
@@ -2224,28 +2308,75 @@ el('generateBtn').onclick=async()=>{
 };
 
 el('selectBtn').onclick=async()=>{
-  if(selectedIdx<0)return;
-  const art=candidates[selectedIdx];
-  const shareUrl=shareArticleUrl(art);
+  if(!selectedIndices.length)return;
+  const articles=selectedIndices.map(i=>candidates[i]).filter(Boolean);
+  if(!articles.length)return;
+  const isMulti=articles.length>1;
+  const shareUrl=shareArticleUrl(articles[0]);
+  const genBtnLabel=isMulti?`🧩 ${articles.length}件からオリジナル記事を作成`:'✏️ 投稿文を生成';
   el('selectBtn').disabled=true;
   el('selectBtn').innerHTML='<div class="spinner"></div>生成中...';
   setStatus(true,'記事本文を取得中...');
-  const today=new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
   try{
-    // 記事本文を取得（失敗してもRSS要約にフォールバック）
-    let articleBody = '';
-    if(art.url && art.type !== 'official_x'){
-      try{
-        const br = await fetch(`/api/fetch_article?url=${encodeURIComponent(art.url)}`);
-        const bd = await br.json();
-        if(bd.body && bd.body.length > 100) articleBody = bd.body;
-      }catch(e){ console.warn('記事取得失敗', e); }
-    }
-    const contextText = articleBody
-      ? `記事本文（抜粋）:\n${articleBody}`
-      : `RSS概要: ${art.summary||'概要なし'}`;
+    // 各記事の本文を取得（失敗してもRSS要約にフォールバック）
+    const bodies=await Promise.all(articles.map(async(art)=>{
+      if(art.url && art.type !== 'official_x'){
+        try{
+          const br = await fetch(`/api/fetch_article?url=${encodeURIComponent(art.url)}`);
+          const bd = await br.json();
+          if(bd.body && bd.body.length > 100) return bd.body;
+        }catch(e){ console.warn('記事取得失敗', e); }
+      }
+      return '';
+    }));
+    const articleBody=bodies[0]||'';
+    const contextText=isMulti
+      ? articles.map((a,idx)=>{
+          const content=bodies[idx]?`内容:\n${bodies[idx]}`:`概要: ${a.summary||'概要なし'}`;
+          return `【記事${idx+1}】\nタイトル: ${a.title}\nソース: ${a.source}\n${content}`;
+        }).join('\n\n')
+      : (articleBody?`記事本文（抜粋）:\n${articleBody}`:`RSS概要: ${articles[0].summary||'概要なし'}`);
 
-    setStatus(true,'投稿文を生成中...');
+    // 他媒体での既出度合い（⑥類似確認）: 候補取得時に記録したcoverageCountを使う
+    const coverageNotes=articles.map(a=>{
+      const c=a.coverageCount||1;
+      return c>1?`「${a.title}」は他${c-1}媒体でも同様のニュースが確認できた（既出度が高い話題）`:null;
+    }).filter(Boolean);
+    const coverageNote=coverageNotes.length
+      ? `\n\n【他媒体での報道状況】\n${coverageNotes.join('\n')}\nこの話題は複数媒体が既に報じているため、単純な事実紹介だけに終わらない独自性のある切り口を選ぶこと。`
+      : '';
+
+    // ③ 独自の切り口を決定
+    setStatus(true,'独自の切り口を検討中...');
+    const angleData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}について、SNS投稿として書く際の「独自の切り口」を1つ決めてください。
+
+${contextText}${coverageNote}
+
+【ルール】
+- 単なる事実の要約ではなく、読者の興味を引く視点・観点を1つ選ぶ
+- 記事に実際に書かれている情報に基づくこと（推測や記事にない一般論で切り口を作らない）
+- 出力は切り口を表す日本語1文（30〜60文字程度）のみ。前置き・説明・「切り口:」のようなラベルは不要`}]);
+    const angle=angleData.text.trim().replace(/^切り口[：:]\s*/,'');
+
+    // ④ 記事構成を作成
+    setStatus(true,'記事構成を作成中...');
+    const outlineData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}と、決定した切り口をもとに、SNS投稿の構成を箇条書きで考えてください。
+
+${contextText}
+
+切り口: ${angle}
+
+【ルール】
+- 投稿がどう展開するかを表す2〜4個の見出し（各10〜20文字程度）を考える
+- 出力はJSON配列のみ。説明や前置き、Markdownのコードブロックは不要。例: ["○○の発表内容","△△という数値の意味","実務目線での考察"]`}], true);
+    let outline=[];
+    try{
+      outline=JSON.parse(outlineData.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,''));
+      if(!Array.isArray(outline))outline=[];
+    }catch(e){ console.warn('構成の解析に失敗',e); }
+    const angleOutlineInstruction=`\n\n【決定済みの切り口・構成（必ず反映する）】\n切り口: ${angle}${outline.length?`\n構成:\n${outline.map((o,i)=>`${i+1}. ${o}`).join('\n')}`:''}`;
+
+    setStatus(true, isMulti?'オリジナル記事を生成中...':'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める
     const includeOpinion=el('includeOpinion').checked;
     const opinionStyleMap={
@@ -2263,13 +2394,46 @@ el('selectBtn').onclick=async()=>{
         : '「一方でこんなリスクも」「まだ課題はあるが」など懸念や考察を1〜2文添える。',
     };
     const opinionInstruction=includeOpinion
-      ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 「実務目線では、」「現場で見ると、」のような一言を起点に、下記スタイルの視点を明確に区切って書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
+      ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 前半の内容を踏まえて視点を切り替え、下記スタイルの内容を書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かない。文章の内容・トーンの変化だけで視点の転換を示すこと\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
+    const targetLenText=isMulti?'日本語500〜800文字程度':'日本語350〜500文字程度';
+    const shortMinChars=isMulti?250:150;
     // 本文のみ生成（ハッシュタグ・URLは後付け）
-    const data=await callProxy([{role:'user',content:`以下の記事についてX投稿の本文を日本語で作成してください。
+    const mainPrompt=isMulti
+      ? `以下の複数の記事を統合し、独自の視点でまとめたX投稿の本文を日本語で作成してください。単なる並列紹介ではなく、複数記事を並べて見る価値が伝わる統合にしてください。
+
+${contextText}
+
+【最重要: 記事内容を具体的・正確に反映する】
+- 各記事に実際に書かれている情報だけを根拠にする。推測や一般論で埋めない
+- 複数記事に共通する論点・対照的な視点・時系列の変化などを見つけ、それを軸に統合する
+- 各記事から具体的な事実（固有名詞・数値・機能名・日付など）を最低1つずつ盛り込む
+- 専門用語・略語が出てきたら、一般読者にも伝わるよう簡潔に噛み砕いて説明する
+
+【構成（厳守）】
+1. 前半: 複数記事の内容を統合し、共通点/対比点を踏まえて具体的に説明する
+2. 後半: ${includeOpinion?`前半の内容を踏まえて視点を切り替え、下記スタイルの内容を書く（「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かず、文章の内容・トーンの変化だけで視点の転換を示すこと）\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}`:'（感想は不要）'}
+
+【文体（読みやすさ・惹きつけ方）】
+- 書き出しの1文で読者の目を引く（意外な数値・変化・対比・問いかけなど）。「〜が発表されました」のような単調な書き出しは避ける
+- 一文は40字前後を目安に区切り、長すぎる一文をだらだら続けない。文の長さや語尾に変化をつけ、単調なリズムにしない
+- 「〜である」「〜となっている」のような硬い報告文調ではなく、語りかけるような自然な日本語にする
+- 難しい概念は身近な例やたとえに置き換えて説明する
+- 1〜2文ごとに改行を入れ、スマホ画面でも読みやすい見た目にする
+
+【文字数（X Premiumアカウントのため長文投稿可）】
+- ${targetLenText}
+- 文字数を埋めるための水増しはせず、各記事にある具体的な情報で自然に厚みを持たせる
+- 短すぎる投稿（${shortMinChars}文字未満）は禁止
+- 本文のみ回答
+
+【その他の制約】
+- 「速報」という言葉は絶対に使わない
+- ハッシュタグ・URLは不要${angleOutlineInstruction}`
+      : `以下の記事についてX投稿の本文を日本語で作成してください。
 
 【記事情報】
-タイトル: ${art.title}
-ソース: ${art.source}（${art.typeLabel||'RSSニュース'}）
+タイトル: ${articles[0].title}
+ソース: ${articles[0].source}（${articles[0].typeLabel||'RSSニュース'}）
 ${contextText}
 
 【最重要: 記事内容を具体的・正確に反映する】
@@ -2285,36 +2449,44 @@ ${contextText}
 - 公式X: 断定しすぎず「公式Xで確認」くらいの表現
 - RSSニュース/Blog: 背景・具体的な数値や固有名詞を交えて2〜3文で紹介${opinionInstruction}
 
+【文体（読みやすさ・惹きつけ方）】
+- 書き出しの1文で読者の目を引く（意外な数値・変化・対比・問いかけなど）。「〜が発表されました」のような単調な書き出しは避ける
+- 一文は40字前後を目安に区切り、長すぎる一文をだらだら続けない。文の長さや語尾に変化をつけ、単調なリズムにしない
+- 「〜である」「〜となっている」のような硬い報告文調ではなく、語りかけるような自然な日本語にする
+- 難しい概念は身近な例やたとえに置き換えて説明する
+- 1〜2文ごとに改行を入れ、スマホ画面でも読みやすい見た目にする
+
 【文字数（X Premiumアカウントのため長文投稿可）】
-- 日本語350〜500文字程度を目安にする
+- ${targetLenText}を目安にする
 - 文字数を埋めるための水増しはせず、記事本文にある具体的な情報で自然に厚みを持たせる
-- 短すぎる投稿（150文字未満）は禁止
-- 改行を適度に使い、読みやすい段落分けにする
+- 短すぎる投稿（${shortMinChars}文字未満）は禁止
 - 本文のみ回答
 
 【その他の制約】
 - 「速報」という言葉は絶対に使わない
-- ハッシュタグ・URLは不要`}]);
+- ハッシュタグ・URLは不要${angleOutlineInstruction}`;
+    const data=await callProxy([{role:'user',content:mainPrompt}]);
 
     // 本文 + URL を組み立て（ハッシュタグなし）
     const calcLen=(t)=>{const u=t.match(/https?:\/\/[^\s]+/g)||[];return xWeightedLen(t.replace(/https?:\/\/[^\s]+/g,''))+u.length*23;};
     let body = data.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-    const urlStr  = shareUrl  ? '\n'+shareUrl  : '';
+    const urls=articles.map(a=>shareArticleUrl(a)).filter(Boolean);
+    const urlStr  = urls.map(u=>'\n'+u).join('');
     let tweet = body + urlStr;
 
     // 短すぎる場合は、上限に収まる範囲で本文だけを一度だけ膨らませる
+    const expandThreshold=isMulti?900:600;
     const bodyLen = calcLen(body);
-    if(bodyLen < 600){
+    if(bodyLen < expandThreshold){
       setStatus(true,'投稿文を少し詳しく調整中...');
       try{
-        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事本文に実際に書かれている具体的な要点・背景・数値や固有名詞を補い、日本語350〜500文字程度の3〜5文にしてください。
-${includeOpinion?`前半で記事内容を具体的に説明し、後半は「実務目線では、」のような一言を起点に${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}という視点を書く、2部構成にすること。`:''}
+        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事内容に実際に書かれている具体的な要点・背景・数値や固有名詞を補い、${targetLenText}の3〜5文にしてください。
+${includeOpinion?`前半で記事内容を具体的に説明し、後半は視点を切り替えて${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}という内容を書く、2部構成にすること。「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かないこと。`:''}
 記事に無い情報を推測で足さないこと。専門用語は簡潔に噛み砕いて説明すること。
+書き出しの1文で読者の目を引くこと。一文は40字前後で区切り、語りかけるような自然な日本語にすること（硬い報告文調は避ける）。1〜2文ごとに改行を入れること。
 URLとハッシュタグは不要。本文のみ回答。
 「速報」という言葉は使わない。
 
-記事タイトル: ${art.title}
-ソース: ${art.source}
 ${contextText}
 
 現在の本文:
@@ -2334,21 +2506,33 @@ ${body}`}]);
         const over=calcLen(tweet);
         const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLは変えずに本文だけを短くしてください。
 文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計${POST_CHAR_LIMIT}以内。
-URL: ${shareUrl}
+URL: ${urls.join(', ')||'なし'}
 本文のみ回答してください。\n\n${body}`}]);
         const newBody=shortened.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
         tweet = newBody + urlStr;
       }catch(e){ console.warn('自動短縮失敗',e); }
     }
-    lastArticle=art;
-    lastArticleBody=articleBody;
+    const repArt=isMulti?{
+      title: articles.map(a=>a.title).join(' ／ '),
+      source: articles.map(a=>a.source).join('・'),
+      published: articles[0].published,
+      typeLabel: 'オリジナル記事',
+      trustScore: Math.min(...articles.map(a=>a.trustScore||70)),
+      url: articles[0].url,
+    }:articles[0];
+    lastArticle=repArt;
+    lastArticleBody=isMulti?bodies.filter(Boolean).join('\n\n'):articleBody;
     el('imgPromptBox').style.display='none';
     el('imgPromptBox').textContent='';
     el('imgPromptCopyBtn').style.display='none';
     el('resultHeader').innerHTML=`
       <span class="badge lang">${activeLang==='en'?'🌐 海外':'🇯🇵 国内'}</span>`;
-    el('articleMeta').textContent=`${art.source}　${art.published}　${art.typeLabel||'RSSニュース'}・信頼度${art.trustScore||70}`;
-    el('articleTitle').innerHTML=art.url?`<a href="${escapeHtml(art.url)}" target="_blank">${escapeHtml(art.title)}</a>`:escapeHtml(art.title);
+    el('articleMeta').textContent=isMulti
+      ? `${articles.length}件の記事を統合　${repArt.published}　オリジナル記事`
+      : `${repArt.source}　${repArt.published}　${repArt.typeLabel||'RSSニュース'}・信頼度${repArt.trustScore||70}`;
+    el('articleTitle').innerHTML=(!isMulti && repArt.url)?`<a href="${escapeHtml(repArt.url)}" target="_blank">${escapeHtml(repArt.title)}</a>`:escapeHtml(repArt.title);
+    el('angleOutlineBox').innerHTML=`<div class="angle-line">🎯 ${escapeHtml(angle)}</div>${outline.length?`<ul class="outline-list">${outline.map(o=>`<li>${escapeHtml(o)}</li>`).join('')}</ul>`:''}`;
+    el('angleOutlineBox').style.display='block';
     el('tweetBox').innerText=tweet;
     updateChar();
     setStatus(false);
@@ -2361,12 +2545,12 @@ URL: ${shareUrl}
     el('resultCard').style.display='block';
     el('xBtn').onclick=()=>{
       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(el('tweetBox').innerText)}`,'_blank');
-      markPosted(art,el('tweetBox').innerText);
+      markPosted(repArt,el('tweetBox').innerText);
     };
   }catch(e){
     setStatus(false);
     el('selectBtn').disabled=false;
-    el('selectBtn').textContent='✏️ 投稿文を生成';
+    el('selectBtn').textContent=genBtnLabel;
     showError('生成に失敗: '+e.message);
   }
 };
@@ -2387,10 +2571,7 @@ el('backBtn').onclick=()=>{
   el('resultCard').style.display='none';
   el('candidatesSection').style.display='block';
   el('opinionPanel').style.display='block';
-  if(selectedIdx>=0){
-    el('stickyBar').style.display='block';
-    document.body.classList.add('has-sticky');
-  }
+  updateStickyBar();
 };
 
 el('imgPromptBtn').onclick=async()=>{
@@ -2750,13 +2931,13 @@ class Handler(BaseHTTPRequestHandler):
         messages = payload.get("messages", [])
 
         if not API_KEY:
-            self.send_json(500, {"error": "ANTHROPIC_API_KEY が設定されていません"})
+            self.send_json(500, {"error": "GEMINI_API_KEY が設定されていません"})
             return
 
         prompt_text = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
         json_mode = bool(payload.get("json_mode"))
         try:
-            text = call_claude(prompt_text, max_tokens=2000, json_mode=json_mode)
+            text = call_gemini(prompt_text, max_tokens=2000, json_mode=json_mode)
             self.send_json(200, {"text": text})
         except Exception as e:
             print(f"[ERROR] {e}", flush=True)
@@ -2765,13 +2946,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     if not API_KEY:
-        print("⚠️  ANTHROPIC_API_KEY が設定されていません")
-        print("   export ANTHROPIC_API_KEY=sk-ant-... を実行してから再起動してください\n")
+        print("⚠️  GEMINI_API_KEY が設定されていません")
+        print("   export GEMINI_API_KEY=... を実行してから再起動してください\n")
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"✅ サーバー起動: {url}")
-    print(f"   モデル: {CLAUDE_MODEL}（複数ソース版・低コスト）")
+    print(f"   モデル: {GEMINI_MODEL}（複数ソース版・低コスト）")
     print("   Ctrl+C で終了\n")
 
     if os.environ.get("PORT") is None:  # ローカルのみブラウザ自動起動

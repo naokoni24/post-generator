@@ -1528,6 +1528,9 @@ def get_articles(
                 tag, items = future.result()
                 processed.add(future)
                 _store_items(tag, items)
+                # 十分な件数が集まったら、残りのフィードを待たずに打ち切って応答を速くする
+                if _recent_candidate_count() >= limit:
+                    break
         except TimeoutError:
             pass
 
@@ -1542,6 +1545,8 @@ def get_articles(
                         tag, items = future.result()
                         processed.add(future)
                         _store_items(tag, items)
+                        if _recent_candidate_count() >= limit:
+                            break
                 except TimeoutError:
                     pass
 

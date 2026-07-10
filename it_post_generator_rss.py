@@ -1128,9 +1128,14 @@ def is_english(text):
     return latin_count >= 8 and latin_count > jp_count
 
 def needs_translation(article):
+    def has_latin_text(value):
+        # 英日混在の見出し（例: 「AWS launches 新機能」）も対象にする。
+        # 固有名詞だけの場合もGemini側のルールで英語のまま保持される。
+        return len(re.findall(r"[A-Za-z]{4,}", value or "")) > 0
+
     return (
-        is_english(article.get("title", ""))
-        or is_english(article.get("summary", ""))
+        has_latin_text(article.get("title", ""))
+        or has_latin_text(article.get("summary", ""))
         or article.get("type") in ("github_release", "docs_update")
     )
 
@@ -1182,14 +1187,17 @@ def _translate_batch(items_in):
             text = match.group(0)
     return json.loads(text)
 
-def translate_titles(articles, max_items=20):
+def translate_titles(articles, max_items=None):
     if not API_KEY:
         return articles
-    targets = [
+    targets_all = [
         (i, a)
         for i, a in enumerate(articles)
         if needs_translation(a)
-    ][:max_items]  # 通常は返却候補20件分、検索時はプール分を日本語表示に変換
+    ]
+    # Noneなら返却する候補をすべて翻訳する。検索時の大きな事前プールだけは
+    # 呼び出し元がmax_itemsを指定して上限を設ける。
+    targets = targets_all if max_items is None else targets_all[:max_items]
     if not targets:
         return articles
 
@@ -1238,7 +1246,8 @@ def translate_titles(articles, max_items=20):
             return []
 
     translated_all = []
-    with _TPE(max_workers=min(len(batches), 6)) as ex:
+    # Flash-Liteの無料枠・秒間制限に引っかかって一部だけ未翻訳になるのを防ぐ。
+    with _TPE(max_workers=min(len(batches), 2)) as ex:
         for result in ex.map(_do_batch, enumerate(batches)):
             translated_all += result
 
@@ -1273,7 +1282,7 @@ def translate_titles(articles, max_items=20):
         print(f"[翻訳] 漏れ {len(missing_targets)}件を再試行", flush=True)
         retry_results = []
         retry_batches = [missing_targets[i:i+3] for i in range(0, len(missing_targets), 3)]
-        with _TPE(max_workers=min(len(retry_batches), 3)) as ex:
+        with _TPE(max_workers=1) as ex:
             for result in ex.map(_do_batch, enumerate(retry_batches)):
                 retry_results += result
         applied |= _apply_translations(retry_results, missing_targets)
@@ -2222,6 +2231,10 @@ async function translateCandidatesInBackground(){
       body:JSON.stringify({articles:candidates})
     });
     const data=await r.json();
+    if(data.warning){
+      console.warn('候補翻訳の一部に失敗:',data.warning);
+      showError('一部の記事を翻訳できませんでした。少し待ってから候補を再取得してください。');
+    }
     if(data.articles&&data.articles.length){
       const selectedUrls=selectedIndices.map(i=>candidates[i]?.url).filter(Boolean);
       candidates=data.articles;
@@ -2919,11 +2932,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": "articles must be a list"})
                 return
             try:
-                translated = translate_titles(articles[:20])
+                translated = translate_titles(articles)
                 self.send_json(200, {"articles": translated})
             except Exception as e:
                 print(f"[ERROR /api/translate_candidates] {e}", flush=True)
-                self.send_json(200, {"articles": articles[:20], "warning": str(e)})
+                self.send_json(200, {"articles": articles, "warning": str(e)})
             return
 
         messages = payload.get("messages", [])

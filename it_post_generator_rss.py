@@ -1505,7 +1505,10 @@ def get_articles(
                 count += 1
         return count
 
-    executor = ThreadPoolExecutor(max_workers=30 if (keyword and not category) else 12)
+    # カテゴリ別フィード数が増え続けており(最多のAI・機械学習で28件)、
+    # max_workers=12では全フィードを同時実行できずタイムアウトが多発していた。
+    # I/Oバウンドな取得なのでワーカー数を増やしても安全なため、タスク数に合わせて拡大する。
+    executor = ThreadPoolExecutor(max_workers=max(30, len(all_tasks)))
     futures = {}  # future -> (tag_or_atype, source_name)
     processed = set()
     try:

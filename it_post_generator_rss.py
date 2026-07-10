@@ -680,8 +680,13 @@ def is_category_relevant(article, category):
     haystack = " ".join(str(article.get(k, "")) for k in ("title", "summary")).lower()
     return any(keyword.lower() in haystack for keyword in keywords)
 
+def strip_invisible_chars(text):
+    """ゼロ幅文字等の不可視Unicode文字を除去する（プロンプトインジェクション対策）。"""
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+
 def strip_tags(text):
-    return re.sub(r'<[^>]+>', '', html.unescape(text or '')).strip()
+    cleaned = re.sub(r'<[^>]+>', '', html.unescape(text or '')).strip()
+    return strip_invisible_chars(cleaned)
 
 def compact_text(text, limit=140):
     text = re.sub(r'\s+', ' ', strip_tags(text)).strip()

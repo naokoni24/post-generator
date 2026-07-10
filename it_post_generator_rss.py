@@ -2143,7 +2143,7 @@ async function callProxy(messages, jsonMode){
   let data;
   try{ data=JSON.parse(raw); }catch(e){ data={error:raw}; }
   const contentType=(r.headers.get('content-type')||'').toLowerCase();
-  if(r.redirected && r.url.includes('/login') || !contentType.includes('application/json')){
+  if(r.redirected && (r.url.includes('/login') || !contentType.includes('application/json'))){
     window.location.href='/login';
     throw new Error('ログインの有効期限が切れました。再ログインしてください');
   }

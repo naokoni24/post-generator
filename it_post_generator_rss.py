@@ -815,8 +815,12 @@ def articles_describe_same_story(first, second):
             len(shared) >= 4 and overlap >= 0.6 and bool(first_bigrams & second_bigrams)
         )
 
-def fetch_article_body(url, char_limit=3000):
+def fetch_article_body(url, char_limit=3000, timeout=15):
     """記事URLから本文テキストを取得して返す"""
+    cache_key = (url, char_limit)
+    cached = _ARTICLE_BODY_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < _ARTICLE_BODY_CACHE_TTL:
+        return cached[1]
     try:
         import urllib.request
         opener = urllib.request.build_opener(FeedRedirectHandler())
@@ -825,7 +829,7 @@ def fetch_article_body(url, char_limit=3000):
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "ja,en;q=0.9",
         })
-        with opener.open(req, timeout=15) as res:
+        with opener.open(req, timeout=timeout) as res:
             raw = res.read().decode("utf-8", errors="replace")
 
         # <script> <style> <nav> <header> <footer> <aside> <form> を除去
@@ -846,6 +850,7 @@ def fetch_article_body(url, char_limit=3000):
         # 文字数制限
         if len(text) > char_limit:
             text = text[:char_limit] + "..."
+        _ARTICLE_BODY_CACHE[cache_key] = (time.monotonic(), text)
         return text
     except Exception as e:
         print(f"[記事取得] 失敗: {e}", flush=True)
@@ -856,6 +861,8 @@ _RSS_CACHE_TTL = 300  # 5分キャッシュ
 _RSS_FAIL_CACHE = {}  # {feed_url: timestamp}
 _RSS_FAIL_CACHE_TTL = 600  # 10分間、失敗したフィードをスキップ
 _RESULT_CACHE = {}  # {(category, lang, include_x, days): (timestamp, articles)}
+_ARTICLE_BODY_CACHE = {}  # {(url, char_limit): (timestamp, article_body)}
+_ARTICLE_BODY_CACHE_TTL = 1800  # 本文確認済みURLを30分間再利用
 _CANCEL_EVENTS = {}
 _CANCEL_LOCK = threading.Lock()
 
@@ -893,6 +900,45 @@ def shutdown_executor(executor):
         executor.shutdown(wait=False, cancel_futures=True)
     except TypeError:
         executor.shutdown(wait=False)
+
+def filter_candidates_with_article_body(candidates, limit, cancel_event=None):
+    """本文を取得できない候補を候補一覧から除外する。"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # 最初に選ばれた候補を優先しつつ、本文取得不可の穴を補う予備候補も確認する。
+    check_limit = min(len(candidates), max(limit * 2, limit))
+    check_items = candidates[:check_limit]
+    if not check_items:
+        return []
+
+    def _check(article):
+        url = article.get("url", "")
+        if article.get("type") == "official_x":
+            return article, False
+        if urlsplit(url).scheme not in ("http", "https"):
+            return article, False
+        # 本文の有無だけを確認する。本文は同じURLの投稿文生成時にキャッシュから再利用される。
+        body = fetch_article_body(url, char_limit=3000, timeout=6)
+        return article, len(body.strip()) >= 180
+
+    valid_urls = set()
+    with ThreadPoolExecutor(max_workers=min(len(check_items), 6)) as executor:
+        futures = [executor.submit(_check, article) for article in check_items]
+        for future in as_completed(futures):
+            ensure_not_cancelled(cancel_event)
+            try:
+                article, is_valid = future.result()
+            except Exception as e:
+                print(f"[本文確認] 失敗: {e}", flush=True)
+                continue
+            if is_valid:
+                valid_urls.add(article.get("url", ""))
+
+    valid = [article for article in check_items if article.get("url", "") in valid_urls][:limit]
+    excluded = len(check_items) - len(valid_urls)
+    if excluded:
+        print(f"[本文確認] 本文を取得できない候補を{excluded}件除外（有効{len(valid)}件）", flush=True)
+    return valid
 
 def merge_result_cache(cache_key, articles, limit, days_limit):
     """同じ検索条件の前回結果で、一時的な取得漏れを補完する。"""
@@ -1609,6 +1655,7 @@ def get_articles(
         matched = [a for a in pool if _match(a)]
         matched.sort(key=lambda a: -a.get("sortTime", 0))
         matched = matched[:limit]
+        matched = filter_candidates_with_article_body(matched, limit, cancel_event)
         if translate:
             matched = translate_titles(matched)
         return matched
@@ -1686,6 +1733,13 @@ def get_articles(
     if len(articles) < limit:
         _add(fresh_pool, limit)  # 候補不足時は同一ソース上限を緩和して件数を優先
     articles = merge_result_cache((category, lang, include_x, days_limit), articles, limit, days_limit)
+    selected_urls = {article.get("url", "") for article in articles}
+    # 本文確認で除外された候補を補えるよう、同条件の予備候補も一緒に確認する。
+    validation_pool = articles + [
+        article for article in fresh_pool
+        if article.get("url", "") not in selected_urls
+    ]
+    articles = filter_candidates_with_article_body(validation_pool, limit, cancel_event)
     if category and not keyword:
         articles = prioritize_same_day_articles(
             articles,

@@ -1934,7 +1934,7 @@ HTML = r"""<!DOCTYPE html>
 
   <div class="source-options">
     <label class="source-toggle">
-      <input type="checkbox" id="officialFirst" checked>
+      <input type="checkbox" id="officialFirst">
       <span>公式優先</span>
     </label>
     <label class="source-toggle" style="margin-left:8px">

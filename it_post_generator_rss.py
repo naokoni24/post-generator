@@ -147,7 +147,6 @@ RSS_PER_FEED_LIMIT = 10
 TODAY_FULL_FETCH_MULTIPLIER = 10
 SPECIAL_PER_FEED_LIMIT = 5
 RSS_EMPTY_RETRY_DELAY = 0.8
-RESULT_CACHE_TTL = 1800
 
 # Cookie認証（環境変数で設定。未設定なら認証なし）
 BASIC_USER = os.environ.get("BASIC_USER", "")
@@ -887,7 +886,6 @@ _RSS_CACHE = {}  # {feed_url: (timestamp, items_list)}
 _RSS_CACHE_TTL = 300  # 5分キャッシュ
 _RSS_FAIL_CACHE = {}  # {feed_url: timestamp}
 _RSS_FAIL_CACHE_TTL = 600  # 10分間、失敗したフィードをスキップ
-_RESULT_CACHE = {}  # {(category, lang, include_x, days): (timestamp, articles)}
 _ARTICLE_BODY_CACHE = {}  # {(url, char_limit): (timestamp, article_body)}
 _ARTICLE_BODY_CACHE_TTL = 1800  # 本文確認済みURLを30分間再利用
 _CANCEL_EVENTS = {}
@@ -967,40 +965,6 @@ def filter_candidates_with_article_body(candidates, limit, cancel_event=None):
         print(f"[本文確認] 本文を取得できない候補を{excluded}件除外（有効{len(valid)}件）", flush=True)
     return valid
 
-def merge_result_cache(cache_key, articles, limit, days_limit):
-    """同じ検索条件の前回結果で、一時的な取得漏れを補完する。"""
-    import time as _time
-    now = _time.time()
-    cached = _RESULT_CACHE.get(cache_key)
-    merged = [dict(article) for article in articles]
-    seen = {key for article in merged for key in article_identity_keys(article)}
-
-    if cached and now - cached[0] < RESULT_CACHE_TTL:
-        for article in cached[1]:
-            if len(merged) >= limit:
-                break
-            identity_keys = article_identity_keys(article)
-            if (
-                not identity_keys
-                or any(key in seen for key in identity_keys)
-                or any(articles_describe_same_story(article, existing) for existing in merged)
-            ):
-                continue
-            age_days = article_age_days(article)
-            if (
-                article.get("type") == "official_x" and days_limit != 0
-            ):
-                pass
-            elif age_days is None or age_days < 0 or age_days > days_limit:
-                continue
-            restored = dict(article)
-            restored["ageDays"] = age_days
-            merged.append(restored)
-            seen.update(identity_keys)
-
-    _RESULT_CACHE[cache_key] = (now, [dict(article) for article in merged[:limit]])
-    return merged[:limit]
-
 def sort_articles_newest_first(articles):
     return sorted(
         articles,
@@ -1010,66 +974,6 @@ def sort_articles_newest_first(articles):
         ),
         reverse=True,
     )
-
-def diversify_articles_by_source(articles, limit, preferred_cap=2, hard_cap=None):
-    """同一ソースの占有を抑えつつ、必要件数に届くまで段階的に上限を緩める。"""
-    ordered = sort_articles_newest_first(articles)
-    if not ordered:
-        return []
-
-    selected = []
-    selected_urls = set()
-    source_counts = {}
-
-    def _add_with_cap(source_cap):
-        for article in ordered:
-            if len(selected) >= limit:
-                break
-            url = article.get("url", "")
-            if not url or url in selected_urls:
-                continue
-            source = article.get("source", "")
-            if source_counts.get(source, 0) >= source_cap:
-                continue
-            selected.append(article)
-            selected_urls.add(url)
-            source_counts[source] = source_counts.get(source, 0) + 1
-
-    max_available_per_source = {}
-    for article in ordered:
-        source = article.get("source", "")
-        max_available_per_source[source] = max_available_per_source.get(source, 0) + 1
-    max_cap = max(max_available_per_source.values(), default=preferred_cap)
-    if hard_cap is not None:
-        max_cap = min(max_cap, hard_cap)
-
-    for cap in range(preferred_cap, max_cap + 1):
-        _add_with_cap(cap)
-        if len(selected) >= limit:
-            break
-
-    if len(selected) < limit and hard_cap is None:
-        _add_with_cap(limit)
-
-    return sort_articles_newest_first(selected[:limit])
-
-def prioritize_same_day_articles(articles, limit, preferred_cap=2, hard_cap=None):
-    """当日記事をできるだけ残し、不足分だけ過去記事で補完する。"""
-    today = [
-        article for article in articles
-        if article.get("type") == "official_x" or article.get("ageDays") == 0
-    ]
-    older = [
-        article for article in articles
-        if article.get("type") != "official_x" and article.get("ageDays") != 0
-    ]
-    today = sort_articles_newest_first(today)
-    if len(today) >= limit:
-        return today[:limit]
-
-    remaining = limit - len(today)
-    older = diversify_articles_by_source(older, remaining, preferred_cap=preferred_cap, hard_cap=hard_cap)
-    return sort_articles_newest_first(today + older)[:limit]
 
 def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TIMEOUT):
     import time as _time
@@ -1622,16 +1526,6 @@ def get_articles(
             -a.get("trustScore", 0),
         )
 
-    def _article_pick_key(a):
-        age_days = a.get("ageDays")
-        return (
-            age_days is None,
-            age_days if age_days is not None else 999,
-            -a.get("sortTime", 0),
-            0 if (a.get("type") in ("github_release", "docs_update", "official_x")) else 1,
-            -a.get("trustScore", 0),
-        )
-
     unique.sort(key=_article_sort_key)
     seen = set()
     deduplicated = []
@@ -1703,91 +1597,11 @@ def get_articles(
             a.get("ageDays") is not None and 0 <= a["ageDays"] <= days_limit
         )
     ]
-    unique = recent
-    unique.sort(key=_article_pick_key)
-    type_caps = {
-        "github_release": 3,
-        "docs_update": 3,
-        "official_x": 2 if include_x else 0,
-        "official_blog": 10,
-        "rss_news": limit,  # per_source制御で多様性を担保するためtype上限は緩める
-    }
-    MAX_PER_SOURCE = 2  # 同一ソースの占有を防ぐ（原則最大2件）
-    type_counts = {}
-    source_counts = {}
-    articles = []
-    selected_urls = set()
-
-    def _add(pool, src_cap):
-        """pool から src_cap 以内で記事を追加。limit に達したら終了"""
-        for article in pool:
-            if len(articles) >= limit:
-                break
-            url = article.get("url", "")
-            if url in selected_urls:
-                continue
-            article_type = article.get("type", "rss_news")
-            source = article.get("source", "")
-            if type_counts.get(article_type, 0) >= type_caps.get(article_type, limit):
-                continue
-            if source_counts.get(source, 0) >= src_cap:
-                continue
-            articles.append(article)
-            selected_urls.add(url)
-            type_counts[article_type] = type_counts.get(article_type, 0) + 1
-            source_counts[source] = source_counts.get(source, 0) + 1
-
-    fresh_pool = [
-        article for article in unique
-        if (article.get("type") == "official_x" and days_limit != 0)
-        or article.get("ageDays") is None
-        or (0 <= article.get("ageDays") <= days_limit)
-    ]
-
-    age_buckets = {}
-    for article in fresh_pool:
-        age = article.get("ageDays")
-        age_key = age if age is not None else 999
-        age_buckets.setdefault(age_key, []).append(article)
-
-    # まず日付ごとのかたまりで選ぶ。当日記事があるのに、別ソースの古い記事で枠が埋まるのを防ぐ。
-    for age_key in sorted(age_buckets):
-        bucket = age_buckets[age_key]
-        _add(bucket, 1)
-        if len(articles) < limit:
-            _add(bucket, MAX_PER_SOURCE)
-        if len(articles) < limit:
-            _add(bucket, MAX_PER_SOURCE + 1)
-        if len(articles) < limit:
-            _add(bucket, MAX_PER_SOURCE + 2)
-        if len(articles) >= limit:
-            break
-
-    if len(articles) < limit:
-        _add(fresh_pool, MAX_PER_SOURCE)
-    if len(articles) < limit:
-        _add(fresh_pool, limit)  # 候補不足時は同一ソース上限を緩和して件数を優先
-    articles = merge_result_cache((category, lang, include_x, days_limit), articles, limit, days_limit)
-    selected_urls = {article.get("url", "") for article in articles}
-    # 本文確認で除外された候補を補えるよう、同条件の予備候補も一緒に確認する。
-    validation_pool = articles + [
-        article for article in fresh_pool
-        if article.get("url", "") not in selected_urls
-    ]
-    articles = filter_candidates_with_article_body(validation_pool, limit, cancel_event)
-    if category and not keyword:
-        articles = prioritize_same_day_articles(
-            articles,
-            limit,
-            preferred_cap=MAX_PER_SOURCE,
-            hard_cap=3,
-        )
-    else:
-        articles = diversify_articles_by_source(
-            articles,
-            limit,
-            preferred_cap=MAX_PER_SOURCE,
-        )
+    # 取得できた候補を全て新しい順に並べ、上から limit 件を採用する
+    # （ソース・種別ごとの上限は設けない。本文が取得できない候補は
+    # filter_candidates_with_article_body が内部で予備を含めて補う）。
+    recent = sort_articles_newest_first(recent)
+    articles = filter_candidates_with_article_body(recent, limit, cancel_event)
     if translate:
         articles = translate_titles(articles)
     return articles

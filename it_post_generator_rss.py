@@ -80,8 +80,8 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
 # 投稿文・画像プロンプトは従来どおりGEMINI_MODEL（Flash-Lite）を使う。
 GEMINI_TRANSLATION_MODEL = os.environ.get("GEMINI_TRANSLATION_MODEL", "gemini-2.5-flash")
 
-def call_gemini(prompt_text, max_tokens=800, json_mode=False, model=None):
-    """Gemini APIにプロンプトを送りテキストを返す。"""
+def call_gemini(prompt_text, max_tokens=800, json_mode=False, model=None, max_retries=4):
+    """Gemini APIにプロンプトを送りテキストを返す。429等は自動リトライする。"""
     generation_config = {"maxOutputTokens": max_tokens}
     if json_mode:
         generation_config["responseMimeType"] = "application/json"
@@ -101,8 +101,27 @@ def call_gemini(prompt_text, max_tokens=800, json_mode=False, model=None):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urlopen(req, timeout=30) as res:
-        result = json.loads(res.read())
+    result = None
+    for attempt in range(max_retries):
+        try:
+            with urlopen(req, timeout=30) as res:
+                result = json.loads(res.read())
+            break
+        except HTTPError as e:
+            retryable = e.code == 429 or e.code >= 500
+            if not retryable or attempt == max_retries - 1:
+                raise
+            retry_after = e.headers.get("Retry-After") if e.headers else None
+            try:
+                wait_seconds = float(retry_after) if retry_after else (2 ** attempt)
+            except ValueError:
+                wait_seconds = 2 ** attempt
+            print(
+                f"[Gemini] {e.code}エラー。{wait_seconds:.1f}秒待って再試行します "
+                f"({attempt + 1}/{max_retries})",
+                flush=True,
+            )
+            time.sleep(wait_seconds)
     usage = result.get("usageMetadata")
     if usage:
         print(
@@ -1249,7 +1268,7 @@ def _translate_batch(items_in):
     prompt = TRANSLATE_PROMPT_BASE + json.dumps(items_in, ensure_ascii=False)
     text = call_gemini(
         prompt,
-        max_tokens=2200,
+        max_tokens=6000,
         json_mode=True,
         model=GEMINI_TRANSLATION_MODEL,
     )
@@ -1294,9 +1313,9 @@ def translate_titles(articles, max_items=None):
         print("[翻訳] キャッシュを使用", flush=True)
         return articles
 
-    # 小さめのバッチで翻訳漏れを減らす
+    # バッチをまとめてAPI呼び出し回数を抑える（呼び出し過多によるレート制限429を避けるため）
     from concurrent.futures import ThreadPoolExecutor as _TPE
-    BATCH_SIZE = 5
+    BATCH_SIZE = 20
     batches = [targets[i:i+BATCH_SIZE] for i in range(0, len(targets), BATCH_SIZE)]
 
     def _do_batch(batch_idx_items):
@@ -1320,8 +1339,8 @@ def translate_titles(articles, max_items=None):
             return []
 
     translated_all = []
-    # Flash-Liteの無料枠・秒間制限に引っかかって一部だけ未翻訳になるのを防ぐ。
-    with _TPE(max_workers=min(len(batches), 2)) as ex:
+    # 同時リクエストがレート制限(429)を誘発しやすいため、直列実行にする。
+    with _TPE(max_workers=1) as ex:
         for result in ex.map(_do_batch, enumerate(batches)):
             translated_all += result
 
@@ -1355,7 +1374,7 @@ def translate_titles(articles, max_items=None):
     if missing_targets:
         print(f"[翻訳] 漏れ {len(missing_targets)}件を再試行", flush=True)
         retry_results = []
-        retry_batches = [missing_targets[i:i+3] for i in range(0, len(missing_targets), 3)]
+        retry_batches = [missing_targets[i:i+BATCH_SIZE] for i in range(0, len(missing_targets), BATCH_SIZE)]
         with _TPE(max_workers=1) as ex:
             for result in ex.map(_do_batch, enumerate(retry_batches)):
                 retry_results += result

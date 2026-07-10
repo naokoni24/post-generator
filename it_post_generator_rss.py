@@ -76,8 +76,11 @@ WEB_MANIFEST = json.dumps({
 
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# 候補一覧はアプリの第一印象になるため、翻訳だけは品質優先のFlashを既定にする。
+# 投稿文・画像プロンプトは従来どおりGEMINI_MODEL（Flash-Lite）を使う。
+GEMINI_TRANSLATION_MODEL = os.environ.get("GEMINI_TRANSLATION_MODEL", "gemini-2.5-flash")
 
-def call_gemini(prompt_text, max_tokens=800, json_mode=False):
+def call_gemini(prompt_text, max_tokens=800, json_mode=False, model=None):
     """Gemini APIにプロンプトを送りテキストを返す。"""
     generation_config = {"maxOutputTokens": max_tokens}
     if json_mode:
@@ -90,7 +93,7 @@ def call_gemini(prompt_text, max_tokens=800, json_mode=False):
     }
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?{urlencode({'key': API_KEY})}"
+        f"{model or GEMINI_MODEL}:generateContent?{urlencode({'key': API_KEY})}"
     )
     req = Request(
         endpoint,
@@ -1140,29 +1143,41 @@ def needs_translation(article):
     )
 
 TRANSLATE_PROMPT_BASE = (
-    "以下のIT記事候補を、ユーザーが選びやすい日本語表示にしてください。\n"
-    "ルール:\n"
-    "- 企業名・サービス名・製品名・人名は英語のまま残す（例: Apple, Meta, Tesla, ChatGPT, AWS）\n"
-    "- 技術用語は一般的な日本語訳を使う\n"
-    "- GitHub Releasesのタイトルは、リポジトリ名とバージョンを残しつつ「何のリリースか」が分かる日本語にする\n"
-    "- summary_ja は80文字以内で、内容や変更点が分かる説明にする\n"
+    "あなたは日本のITニュース編集者です。以下の候補を、正確で自然な日本語の見出しと概要に編集してください。\n"
+    "翻訳・編集ルール（必ず守る）:\n"
+    "- 入力にない事実・数値・評価を足さない。推測で補わない\n"
+    "- 逐語訳や不自然なカタカナ語を避け、日本のITニュース見出しとして簡潔で読みやすく書く\n"
+    "- Apple、AWS、OpenAI、ChatGPT、Claude、Gemini、GitHub、製品名、正式な人名、リポジトリ名、バージョン番号は原則として英語のまま残す\n"
+    "- 一般的な技術用語は自然な日本語にする（例: release→リリース、security vulnerability→脆弱性、deployment→デプロイ）\n"
+    "- タイトルは内容が一読で分かる自然な日本語。原文の情報量を不必要に削らない\n"
+    "- GitHub Releasesは、リポジトリ名とバージョンを残し、「何のリリースか」が分かる表現にする\n"
+    "- summary_ja は80文字以内。記事本文を読まなくても更新点・要点が分かる一文にする\n"
+    "- 原文が既に十分自然な日本語なら、意味を変えずにそのまま返す\n"
     "- JSON配列のみを返す。説明文やMarkdownは不要\n"
     '- 各要素は {"index": 数字, "title_ja": 文字列, "summary_ja": 文字列} の形にする\n\n'
 )
 TRANSLATION_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translation_cache.json")
 TRANSLATION_CACHE_MAX = 3000
+TRANSLATION_CACHE_VERSION = "gemini-flash-editor-v2"
 
 def _load_translation_cache():
     try:
         with open(TRANSLATION_CACHE_FILE, "r", encoding="utf-8") as f:
             entries = json.load(f)
-        return {(e[0], e[1]): (e[2], e[3]) for e in entries if len(e) == 4}
+        return {
+            (e[1], e[2]): (e[3], e[4])
+            for e in entries
+            if len(e) == 5 and e[0] == TRANSLATION_CACHE_VERSION
+        }
     except Exception:
         return {}
 
 def _save_translation_cache():
     try:
-        entries = [[k[0], k[1], v[0], v[1]] for k, v in _TRANSLATION_CACHE.items()]
+        entries = [
+            [TRANSLATION_CACHE_VERSION, k[0], k[1], v[0], v[1]]
+            for k, v in _TRANSLATION_CACHE.items()
+        ]
         with open(TRANSLATION_CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(entries, f, ensure_ascii=False)
     except Exception as e:
@@ -1178,7 +1193,12 @@ def _cache_set_translation(key, value):
 def _translate_batch(items_in):
     """items_in リストをAPIで翻訳し、結果リストを返す。失敗時は空リスト"""
     prompt = TRANSLATE_PROMPT_BASE + json.dumps(items_in, ensure_ascii=False)
-    text = call_gemini(prompt, max_tokens=2200, json_mode=True)
+    text = call_gemini(
+        prompt,
+        max_tokens=2200,
+        json_mode=True,
+        model=GEMINI_TRANSLATION_MODEL,
+    )
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
     if not text.startswith("["):

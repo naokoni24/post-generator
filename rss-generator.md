@@ -40,6 +40,7 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 | --- | --- | --- |
 | `GEMINI_API_KEY` | 投稿生成・翻訳には必須 | Google AI Studio / Gemini APIキー |
 | `GEMINI_MODEL` | 任意 | 使用モデル。未指定時は `gemini-2.5-flash-lite` |
+| `GEMINI_TRANSLATION_MODEL` | 任意 | 候補翻訳専用モデル。未指定時は品質優先で `gemini-2.5-flash` |
 | `PORT` | 任意 | Webサーバーのポート。未指定時は `8765` |
 | `BASIC_USER` | 任意 | ログイン用ユーザー名 |
 | `BASIC_PASS` | 任意 | ログイン用パスワード |
@@ -743,3 +744,7 @@ RenderでのWeb運用を想定しています。
   - `/api/translate_candidates` と `translate_titles()` の先頭20件制限を解除し、画面に返した候補をすべて翻訳対象にする（検索時の事前候補プールには従来どおり呼び出し元で上限を指定）
   - Gemini Flash-Liteの秒間制限で翻訳バッチが落ちないよう、通常翻訳は最大2並列・再試行は1並列に抑制
   - APIエラーを黙って原文返却するだけだった処理を改善し、翻訳できなかった場合は画面に再取得を促すメッセージを表示する
+- 【翻訳品質改善】候補一覧の翻訳をGemini Flash-Liteから翻訳専用のGemini Flashへ分離
+  - 投稿文・画像プロンプト生成は低コストの `GEMINI_MODEL=gemini-2.5-flash-lite` のまま維持し、一覧翻訳だけを既定で `GEMINI_TRANSLATION_MODEL=gemini-2.5-flash` にする。必要なら環境変数で変更できる
+  - 翻訳プロンプトを「日本のITニュース編集者」向けに再設計。事実追加の禁止、逐語訳・不自然なカタカナ語の回避、固有名詞・製品名・バージョンの保持、要点を残した自然な見出しと概要を明示した
+  - Flash-Lite時代の低品質な翻訳キャッシュは再利用しない。キャッシュ形式にバージョンを持たせ、Gemini Flashによる新しい翻訳結果だけを保存する

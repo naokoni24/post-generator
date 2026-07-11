@@ -293,7 +293,7 @@ RSS_FEEDS = {
         {"url": "https://www.darkreading.com/rss.xml", "source": "Dark Reading"},
         {"url": "https://isc.sans.edu/rssfeed_full.xml", "source": "SANS Internet Storm Center"},
         {"url": "https://www.helpnetsecurity.com/feed/", "source": "Help Net Security"},
-        {"url": "https://www.bleepingcomputer.com/feed/", "source": "BleepingComputer"},
+        {"url": "https://therecord.media/feed", "source": "The Record"},
         {"url": "https://securityaffairs.com/feed", "source": "Security Affairs"},
         # 当日の脅威・脆弱性ニュースを補う高頻度フィード
         {"url": "https://news.google.com/rss/search?q=%28cybersecurity+OR+vulnerability+OR+ransomware+OR+%22data+breach%22+OR+%22zero-day%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Security"},
@@ -379,7 +379,7 @@ RSS_FEEDS = {
         {"url": "https://www.informationweek.com/rss.xml", "source": "InformationWeek"},
         {"url": "https://venturebeat.com/category/enterprise/feed", "source": "VentureBeat Enterprise"},
         {"url": "https://www.zdnet.com/news/rss.xml", "source": "ZDNet"},
-        {"url": "https://www.techrepublic.com/rss/", "source": "TechRepublic"},
+        {"url": "https://www.computerworld.com/feed/", "source": "Computerworld"},
         # 当日のDX・エンタープライズニュースを補う高頻度フィード
         {"url": "https://news.google.com/rss/search?q=%28%22digital+transformation%22+OR+%22enterprise+software%22+OR+SaaS+OR+%22business+technology%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Business Tech"},
     ],
@@ -703,7 +703,7 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "日経XTECH",
         "はてブ IT",
         "ZDNet",
-        "TechRepublic",
+        "Computerworld",
     },
 }
 
@@ -1015,7 +1015,11 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
     try:
         import urllib.request
         opener = urllib.request.build_opener(FeedRedirectHandler())
-        req = Request(feed_url, headers={"User-Agent": "Mozilla/5.0"})
+        req = Request(feed_url, headers={
+            # 単純な"Mozilla/5.0"だとBot判定で接続を切るサイトがあるため、実ブラウザ相当のUAにする。
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        })
         with opener.open(req, timeout=timeout) as res:
             raw = res.read()
         root = ET.fromstring(raw)

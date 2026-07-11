@@ -806,6 +806,13 @@ RenderでのWeb運用を想定しています。
   - 便利ツール・Tips: 窓の杜を追加
   - 新しい日本語Google News検索ソース（`hl=ja&gl=JP`）や窓の杜・Security NEXT・JPCERT/CC・Coral Capitalは、国内/海外判定に使う`JP_PRIORITY_SOURCES`に未登録だと英語圏ソース扱いされ「国内」選択時に除外されてしまうバグを発見し、`JP_PRIORITY_SOURCES`に全て追加して修正
   - Previewで検証: セキュリティ 0→14件、スタートアップ 2→20件、クラウド・AWS 8→20件、ガジェット・ハードウェア 15→16件に改善したことを確認
+- 【恒常的に403/接続切断するフィードの調査・修正】BleepingComputer・TechRepublic・How-To Geek・MakeUseOfの4件を個別に原因調査
+  - How-To Geek・MakeUseOfは、`fetch_rss()`が単純な`User-Agent: Mozilla/5.0`しか送っておらず、これがBot判定されて接続を切られていたことが判明（curlで実ブラウザ相当のUAに変えると200が返ることを確認）。`fetch_rss()`のUser-Agentを`fetch_article_body()`と同じ実ブラウザ相当の文字列に強化し、Acceptヘッダーも追加。差し替えではなく元のフィードのまま解決
+  - BleepingComputer・TechRepublicは、実ブラウザ相当のUA・Accept・Refererを付けても403が変わらず、より強固なBot対策（Cloudflare等）と判断。代替ソースに差し替え:
+    - セキュリティ: BleepingComputer → **The Record**（therecord.media）
+    - ビジネス・DX: TechRepublic → **Computerworld**
+  - `CATEGORY_RELEVANCE_FILTER_SOURCES`内の`"TechRepublic"`参照も`"Computerworld"`に更新（差し替え漏れがあるとフィルタが効かなくなるため）
+  - Previewで検証: セキュリティ/海外・ビジネスDX/海外がいずれも20件フル取得、The Record・Computerworldとも正常に候補入りすることを確認。MakeUseOfも取得成功を確認
 - 【RSSフィード大量タイムアウトの修正】実際のRenderログで、AI・機械学習カテゴリのフィード28件中21件が`[RSS] タイムアウト`していることを確認
   - カテゴリ別フィード合計数を調査した結果、AI・機械学習=28件、クラウド・AWS=21件など、`ThreadPoolExecutor(max_workers=12)`を大きく超えるフィード数になっていた（フィード追加が積み重なった結果、この上限が長期間見直されていなかった）
   - 12ワーカーでは全フィードを同時実行できず、後方のフィード（OpenAI Blog・Anthropic Blog等、AI企業公式Blogセクションがリスト後半にあるため影響を受けやすかった）が`fast_budget`(4秒)/`max_budget`(8秒)以内に実行すら開始されずタイムアウト扱いになっていた

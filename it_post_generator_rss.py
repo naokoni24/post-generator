@@ -2778,7 +2778,6 @@ class Handler(BaseHTTPRequestHandler):
                     articles = _load_articles(days)
                 except Exception as first_error:
                     print(f"[候補取得] 初回失敗、再試行します: {first_error}", flush=True)
-                    _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
                     ensure_not_cancelled(cancel_event)
@@ -2786,9 +2785,11 @@ class Handler(BaseHTTPRequestHandler):
                 used_full_fetch = False
                 expanded_days = days
                 auto_expand_max_days = 3 if lang == "en" else 7
+                # 同一リクエスト内の再取得では失敗キャッシュをクリアしない。
+                # 403やコネクション切断など確実に失敗するフィードを毎回律儀に
+                # 再試行すると、その分だけ後続の取得予算を浪費してしまうため。
                 if len(articles) < 20:
                     print(f"[候補取得] {len(articles)}件のため追加取得します", flush=True)
-                    _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
                 # 「今日」は当日の記事だけを返す。件数不足でも過去記事への
@@ -2796,13 +2797,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not keyword and category and days > 0 and len(articles) < 20 and days < 3:
                     expanded_days = 3
                     print(f"[候補取得] {len(articles)}件のため3日以内で補完します", flush=True)
-                    _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(expanded_days, full=True)
                 if not keyword and category and days > 0 and len(articles) < 20 and expanded_days < auto_expand_max_days:
                     expanded_days = auto_expand_max_days
                     print(f"[候補取得] {len(articles)}件のため{auto_expand_max_days}日以内で補完します", flush=True)
-                    _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(expanded_days, full=True)
                 if not articles:

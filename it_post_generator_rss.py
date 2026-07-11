@@ -264,6 +264,7 @@ RSS_FEEDS = {
         {"url": "https://cloud.watch.impress.co.jp/data/rss/1.0/clw/feed.rdf", "source": "クラウド Watch"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        {"url": "https://news.google.com/rss/search?q=%28%E3%82%AF%E3%83%A9%E3%82%A6%E3%83%89+OR+AWS+OR+Azure+OR+%22Google+Cloud%22%29+when%3A1d&hl=ja&gl=JP&ceid=JP%3Aja", "source": "Google News クラウド"},
         # 海外
         {"url": "https://aws.amazon.com/blogs/aws/feed/", "source": "AWS Blog"},
         {"url": "https://thenewstack.io/feed/", "source": "The New Stack"},
@@ -283,6 +284,9 @@ RSS_FEEDS = {
         # 国内
         {"url": "https://rss.itmedia.co.jp/rss/2.0/news_security.xml", "source": "ITmedia セキュリティ"},
         {"url": "https://internet.watch.impress.co.jp/data/rss/1.0/iw/feed.rdf", "source": "INTERNET Watch"},
+        {"url": "https://www.security-next.com/feed", "source": "Security NEXT"},
+        {"url": "https://www.jpcert.or.jp/rss/jpcert.rdf", "source": "JPCERT/CC"},
+        {"url": "https://news.google.com/rss/search?q=%28%E3%82%B5%E3%82%A4%E3%83%90%E3%83%BC%E6%94%BB%E6%92%83+OR+%E8%84%86%E5%BC%B1%E6%80%A7+OR+%E3%83%A9%E3%83%B3%E3%82%B5%E3%83%A0%E3%82%A6%E3%82%A7%E3%82%A2%29+when%3A1d&hl=ja&gl=JP&ceid=JP%3Aja", "source": "Google News セキュリティ"},
         # 海外
         {"url": "https://feeds.feedburner.com/TheHackersNews", "source": "The Hacker News"},
         {"url": "https://krebsonsecurity.com/feed/", "source": "Krebs on Security"},
@@ -315,6 +319,8 @@ RSS_FEEDS = {
         # 国内
         {"url": "https://thebridge.jp/feed", "source": "BRIDGE"},
         {"url": "https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml", "source": "ITmedia NEWS"},
+        {"url": "https://coralcap.co/feed/", "source": "Coral Capital"},
+        {"url": "https://news.google.com/rss/search?q=%28%E3%82%B9%E3%82%BF%E3%83%BC%E3%83%88%E3%82%A2%E3%83%83%E3%83%97+OR+%E8%B3%87%E9%87%91%E8%AA%BF%E9%81%94+OR+%E3%83%99%E3%83%B3%E3%83%81%E3%83%A3%E3%83%BC%29+when%3A1d&hl=ja&gl=JP&ceid=JP%3Aja", "source": "Google News スタートアップ"},
         # 海外
         {"url": "https://techcrunch.com/category/startups/feed/", "source": "TechCrunch Startups"},
         {"url": "https://venturebeat.com/feed/", "source": "VentureBeat"},
@@ -332,6 +338,7 @@ RSS_FEEDS = {
         {"url": "https://www.lifehacker.jp/feed/index.xml", "source": "Lifehacker Japan"},
         {"url": "https://zenn.dev/feed", "source": "Zenn"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        {"url": "https://forest.watch.impress.co.jp/data/rss/1.0/wf/feed.rdf", "source": "窓の杜"},
         # 海外
         {"url": "https://www.producthunt.com/feed", "source": "Product Hunt"},
         {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
@@ -347,6 +354,8 @@ RSS_FEEDS = {
         {"url": "https://pc.watch.impress.co.jp/data/rss/1.0/pcw/feed.rdf", "source": "PC Watch"},
         {"url": "https://k-tai.watch.impress.co.jp/data/rss/1.0/ktw/feed.rdf", "source": "ケータイ Watch"},
         {"url": "https://www.gizmodo.jp/index.xml", "source": "Gizmodo Japan"},
+        {"url": "https://av.watch.impress.co.jp/data/rss/1.0/avw/feed.rdf", "source": "AV Watch"},
+        {"url": "https://news.google.com/rss/search?q=%28%E3%82%AC%E3%82%B8%E3%82%A7%E3%83%83%E3%83%88+OR+%E3%82%B9%E3%83%9E%E3%83%9B+OR+%E5%AE%B6%E9%9B%BB%29+when%3A1d&hl=ja&gl=JP&ceid=JP%3Aja", "source": "Google News ガジェット"},
         # 海外
         {"url": "https://www.engadget.com/rss.xml", "source": "Engadget"},
         {"url": "https://www.theverge.com/rss/index.xml", "source": "The Verge"},
@@ -550,6 +559,14 @@ JP_PRIORITY_SOURCES = [
     "ケータイ Watch",
     "クラウド Watch",
     "はてブ",
+    "Security NEXT",
+    "JPCERT",
+    "Coral Capital",
+    "窓の杜",
+    "Google News セキュリティ",
+    "Google News スタートアップ",
+    "Google News クラウド",
+    "Google News ガジェット",
 ]
 
 CATEGORY_RELEVANCE_KEYWORDS = {

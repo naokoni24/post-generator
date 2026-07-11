@@ -787,6 +787,10 @@ RenderでのWeb運用を想定しています。
   - 翻訳バッチの並列実行数を2並列→完全直列（`max_workers=1`）に変更し、同時リクエストによるレート制限の誘発を避けるようにした
   - なお、翻訳用モデル（`GEMINI_TRANSLATION_MODEL`既定値`gemini-2.5-flash`）と投稿文生成用モデル（`GEMINI_MODEL`既定値`gemini-2.5-flash-lite`）はレート制限枠が別モデル・別枠の可能性があるため、翻訳だけ429が続く場合は`GEMINI_TRANSLATION_MODEL`を`gemini-2.5-flash-lite`に変更することも検討する
   - 実際には無料枠のAPIキーを使っていたことが原因と判明し、キーを再生成して解決
+- 【翻訳モデルをFlash-Liteに統一】コスト比較の結果、Gemini運用コストはClaude(haiku-4-5)より安い（約0.9円/回 vs 約1.5円/回）ことを確認。さらにコストを下げるため、翻訳用モデルの既定値を品質優先の`gemini-2.5-flash`から生成用と同じ`gemini-2.5-flash-lite`に変更
+  - Flash-Liteは入力$0.10/出力$0.40（Flash比で約1/3〜1/6）で、生成用モデルと同じレート制限枠で運用実績があるため429対策にもなる
+  - 翻訳品質を優先したい場合は環境変数`GEMINI_TRANSLATION_MODEL`に`gemini-2.5-flash`等を指定すれば従来の挙動に戻せる
+  - Flash品質で保存された既存の翻訳キャッシュと混在しないよう、`TRANSLATION_CACHE_VERSION`を`gemini-flash-editor-v2`→`gemini-flash-lite-editor-v3`に更新（古いキャッシュは自動的に無視され、再翻訳される）
 - 【RSSフィード大量タイムアウトの修正】実際のRenderログで、AI・機械学習カテゴリのフィード28件中21件が`[RSS] タイムアウト`していることを確認
   - カテゴリ別フィード合計数を調査した結果、AI・機械学習=28件、クラウド・AWS=21件など、`ThreadPoolExecutor(max_workers=12)`を大きく超えるフィード数になっていた（フィード追加が積み重なった結果、この上限が長期間見直されていなかった）
   - 12ワーカーでは全フィードを同時実行できず、後方のフィード（OpenAI Blog・Anthropic Blog等、AI企業公式Blogセクションがリスト後半にあるため影響を受けやすかった）が`fast_budget`(4秒)/`max_budget`(8秒)以内に実行すら開始されずタイムアウト扱いになっていた

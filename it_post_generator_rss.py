@@ -76,9 +76,9 @@ WEB_MANIFEST = json.dumps({
 
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
-# 候補一覧はアプリの第一印象になるため、翻訳だけは品質優先のFlashを既定にする。
-# 投稿文・画像プロンプトは従来どおりGEMINI_MODEL（Flash-Lite）を使う。
-GEMINI_TRANSLATION_MODEL = os.environ.get("GEMINI_TRANSLATION_MODEL", "gemini-2.5-flash")
+# 翻訳もFlash-Liteを既定にする（コストが約1/3、レート制限枠も生成用と共通で運用実績あり）。
+# 品質を優先したい場合は環境変数 GEMINI_TRANSLATION_MODEL で gemini-2.5-flash 等に変更可能。
+GEMINI_TRANSLATION_MODEL = os.environ.get("GEMINI_TRANSLATION_MODEL", "gemini-2.5-flash-lite")
 
 def call_gemini(prompt_text, max_tokens=800, json_mode=False, model=None, max_retries=4):
     """Gemini APIにプロンプトを送りテキストを返す。429等は自動リトライする。"""
@@ -1142,7 +1142,7 @@ TRANSLATE_PROMPT_BASE = (
 )
 TRANSLATION_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translation_cache.json")
 TRANSLATION_CACHE_MAX = 3000
-TRANSLATION_CACHE_VERSION = "gemini-flash-editor-v2"
+TRANSLATION_CACHE_VERSION = "gemini-flash-lite-editor-v3"
 
 def _load_translation_cache():
     try:

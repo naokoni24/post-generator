@@ -1271,7 +1271,10 @@ def _load_translation_cache():
         return {
             (e[1], e[2]): (e[3], e[4])
             for e in entries
-            if len(e) == 5 and e[0] == TRANSLATION_CACHE_VERSION
+            # e[3](title_ja)が空のエントリは、過去のバグでtitle_ja空文字が
+            # 永続保存されてしまったものである可能性があるため読み込み時に除外し、
+            # 次回アクセス時に再翻訳を試みられるようにする（自己修復）。
+            if len(e) == 5 and e[0] == TRANSLATION_CACHE_VERSION and e[3]
         }
     except Exception:
         return {}
@@ -1384,9 +1387,15 @@ def translate_titles(articles, max_items=None):
                 continue
             title_ja = (item.get("title_ja") or "").strip()
             summary_ja = (item.get("summary_ja") or "").strip()
-            if title_ja:
-                articles[orig_idx]["title_en"] = articles[orig_idx]["title"]
-                articles[orig_idx]["title"] = title_ja
+            if not title_ja:
+                # title_jaが空はGemini側の処理漏れ（レート制限・出力形式の乱れ等）とみなす。
+                # ここでapplied扱いにすると再試行対象から外れ、さらに下でキャッシュに
+                # 空文字が永続保存されると、同じ見出しの記事が以後ずっと未翻訳のまま
+                # （英語表示）になり二度と再翻訳されなくなるため、何もせずスキップして
+                # missing_targetsでの再試行に回す。
+                continue
+            articles[orig_idx]["title_en"] = articles[orig_idx]["title"]
+            articles[orig_idx]["title"] = title_ja
             if summary_ja:
                 articles[orig_idx]["summary_en"] = articles[orig_idx].get("summary", "")
                 articles[orig_idx]["summary"] = summary_ja

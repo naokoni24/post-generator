@@ -1524,13 +1524,24 @@ def get_articles(
             other_items.extend(items)
 
     def _recent_candidate_count():
+        # 早期終了の判定では「最終的に候補として残りうる記事」だけを数える。
+        # 取得済み全件で数えると、言語フィルタ・カテゴリ関連度フィルタで後から除外される
+        # 記事でカウントが埋まり、必要なフィードの到着を待たずに打ち切ってしまう。
+        # 例: 海外検索で応答の速い国内フィードだけが先に返るとその時点で打ち切られ、
+        # 海外フィードが全てキャンセルされて言語フィルタ後の候補がほぼ0件になる。
+        if lang == "jp":
+            pool = jp_items + special_items
+        else:
+            pool = special_items + other_items
         seen = set()
         count = 0
-        for article in jp_items + special_items + other_items:
+        for article in pool:
             url = article.get("url", "")
             if not url or url in seen:
                 continue
             seen.add(url)
+            if category and not keyword and not is_category_relevant(article, category):
+                continue
             age_days = article_age_days(article)
             if article.get("type") == "official_x" or (age_days is not None and 0 <= age_days <= days_limit):
                 count += 1
@@ -2192,21 +2203,23 @@ function renderCands(){
   }
   const OFFICIAL_TYPES=new Set(['official_blog','github_release','docs_update']);
   const officialFirst=el('officialFirst')&&el('officialFirst').checked;
-  let displayCandidates=[...candidates];
+  // origIdxは常にcandidates配列上の元のインデックス（selectCand/candidates[i]参照に使う）。
+  // 「公式優先」で表示順を並べ替えても、選択対象は表示位置ではなく元のインデックスで
+  // 追跡しないと、並べ替え後に別の記事が選択されてしまう。
+  let displayCandidates=candidates.map((a,origIdx)=>({a,origIdx}));
   if(officialFirst){
-    displayCandidates.sort((a,b)=>{
-      const aOff=OFFICIAL_TYPES.has(a.type)?0:1;
-      const bOff=OFFICIAL_TYPES.has(b.type)?0:1;
-      return aOff-bOff;
+    displayCandidates.sort((x,y)=>{
+      const xOff=OFFICIAL_TYPES.has(x.a.type)?0:1;
+      const yOff=OFFICIAL_TYPES.has(y.a.type)?0:1;
+      return xOff-yOff;
     });
   }
-  const filtered=displayCandidates.map((a,i)=>[i,a]);
-  const visibleCandidates=filtered.slice(0, visibleCount);
-  if(!filtered.length){
+  const visibleCandidates=displayCandidates.slice(0, visibleCount);
+  if(!displayCandidates.length){
     el('candidatesList').innerHTML='';
   }else{
-    el('candidatesList').innerHTML=visibleCandidates.map(([i,a])=>{
-    const selOrder=selectedIndices.indexOf(i);
+    el('candidatesList').innerHTML=visibleCandidates.map(({a,origIdx},pos)=>{
+    const selOrder=selectedIndices.indexOf(origIdx);
     const sel=selOrder>=0;
     const title=escapeHtml(a.title);
     const summary=escapeHtml(a.summary);
@@ -2215,8 +2228,8 @@ function renderCands(){
     const typeLabel=escapeHtml(a.typeLabel||'RSSニュース');
     const url=escapeHtml(a.url);
     const checkLabel=sel?(selectedIndices.length>1?String(selOrder+1):'✓'):'';
-    return `<div class="cand-card${sel?' selected':''}" onclick="selectCand(${i})">
-      <div class="cand-num">${i+1}</div>
+    return `<div class="cand-card${sel?' selected':''}" onclick="selectCand(${origIdx})">
+      <div class="cand-num">${pos+1}</div>
       <div class="cand-body">
         <div class="cand-title">${title}</div>
         ${summary?`<div class="cand-summary">${summary}</div>`:''}
@@ -2241,7 +2254,7 @@ function renderCands(){
   }else{
     opPanel.style.display='none';
   }
-  const remaining=Math.max(filtered.length-visibleCount,0);
+  const remaining=Math.max(displayCandidates.length-visibleCount,0);
   el('moreBtn').style.display=remaining>0?'block':'none';
   el('moreBtn').textContent=`もっと見る（残り${remaining}件）`;
 }

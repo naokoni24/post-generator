@@ -858,33 +858,77 @@ def articles_describe_same_story(first, second):
             len(shared) >= 4 and overlap >= 0.6 and bool(first_bigrams & second_bigrams)
         )
 
+# 本文コンテナとして一般的なclass/id名。主要RSSソース31サイトの実HTML調査に基づく。
+# - [-_]? はハイフン/アンダースコア/連結の揺れを吸収（entry-content, entrybody, c-article_content, articleBody等）
+# - 属性はシングルクォートのサイトもある（The Hacker News等）ため ["\'] で両対応
 _CONTENT_CLASS_PATTERN = re.compile(
-    r'<(?:article|div|section)\b[^>]*(?:class|id)="[^"]*(?:entry-content|article-body|articleBody|post-content|article-content|articleContent|main-content)[^"]*"[^>]*>',
+    r'<(?:article|div|section|main)\b[^>]*(?:class|id)=["\'][^"\']*(?:'
+    r'entry[-_]?content|entry[-_]?body|article[-_]?body|article[-_]?content|'
+    r'post[-_]?content|post[-_]?body|main[-_]?content'
+    r')[^"\']*["\'][^>]*>',
     re.I,
 )
 # 本文とみなす領域の開始位置から、この文字数ぶんのHTMLだけを対象にする。
 # 実サイトのHTMLは閉じタグの対応が崩れていることが多く、深さを数えて正確な終了位置を
 # 求めるのは信頼できないため、本文が収まる程度の固定windowで打ち切る簡易的な方法にする。
-_CONTENT_WINDOW_CHARS = 20000
+# 20kだとThe Hacker News等のマークアップが重いサイトで本文後半が切れ、40kだと関連記事
+# ノイズが増えるため30kにしている。
+_CONTENT_WINDOW_CHARS = 30000
+# 候補ブロックを本文とみなす最低テキスト量。実測では正しい本文はほぼ全サイトで500字を
+# 超え、誤マッチ（関連記事カード等）は数十〜300字程度だった。
+_CONTENT_MIN_TEXT = 500
+# クラス/IDパターンの探索は先頭数箇所まで（巨大ページでの無駄な走査を防ぐ）
+_CONTENT_PATTERN_MAX_TRIES = 8
+
+def _content_text_len(block):
+    """HTMLブロック中の可視テキスト量の概算。"""
+    return len(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', block)))
 
 def _extract_main_content_block(raw):
-    """本文とみなせる領域を優先順位順に探して返す。見つからなければNone。"""
+    """本文とみなせる領域を優先順位順に探して返す。見つからなければNone。
+
+    優先順位（主要31ソースの実HTML調査で決定）:
+    1. <article>タグの最長ブロック（十分なテキストがある場合。最も精度が高い）
+    2. entry-content等の本文系クラス/IDを持つブロック（<article>を使わないWordPress系等）
+       ただし<main>と比べてテキストが半分未満しかない場合は誤マッチとみなしスキップ
+       （例: GitHub Blogは post-content 系クラスが目次にだけ付いている）
+    3. <main>タグ（ページ全体よりはヘッダ・ナビを除外できる）
+    """
     article_blocks = re.findall(r'<article[^>]*>.*?</article>', raw, flags=re.S|re.I)
     if article_blocks:
         longest = max(article_blocks, key=len)
-        if len(re.sub(r'<[^>]+>', '', longest)) > 200:
+        if _content_text_len(longest) >= _CONTENT_MIN_TEXT:
             return longest
 
-    match = _CONTENT_CLASS_PATTERN.search(raw)
-    if match:
+    main_match = re.search(r'<main[^>]*>.*?</main>', raw, flags=re.S|re.I)
+    main_block = main_match.group(0) if main_match else None
+    main_len = _content_text_len(main_block) if main_block else 0
+
+    # 同名クラスが複数箇所にある場合（導入ボックスと本文が別divのCodeZine等）や、
+    # 最初のマッチが隠しテンプレートの場合があるため、複数試してテキスト最長のwindowを使う。
+    best_window = None
+    best_len = 0
+    for i, match in enumerate(_CONTENT_CLASS_PATTERN.finditer(raw)):
+        if i >= _CONTENT_PATTERN_MAX_TRIES:
+            break
         window = raw[match.start():match.start() + _CONTENT_WINDOW_CHARS]
         # windowの終端がタグの途中で切れていると、閉じられていない"<div..."のような
         # 断片がタグ除去処理をすり抜けて本文に混入するため、最後の完全なタグ境界で切り直す。
         last_tag_end = window.rfind(">")
         if last_tag_end != -1:
             window = window[:last_tag_end + 1]
-        if len(re.sub(r'<[^>]+>', '', window)) > 200:
-            return window
+        window_len = _content_text_len(window)
+        if window_len > best_len:
+            best_window, best_len = window, window_len
+    if (
+        best_window is not None
+        and best_len >= _CONTENT_MIN_TEXT
+        and (not main_block or best_len >= main_len * 0.5)
+    ):
+        return best_window
+
+    if main_block and main_len >= _CONTENT_MIN_TEXT:
+        return main_block
 
     return None
 
@@ -909,9 +953,8 @@ def fetch_article_body(url, char_limit=6000, timeout=15):
         raw = re.sub(r'<(script|style|nav|header|footer|aside|form)[^>]*>.*?</\1>', ' ', raw, flags=re.S|re.I)
 
         # 本文とみなせる領域があれば、そこだけを対象にする（ナビ・関連記事・広告・執筆者紹介などの
-        # ノイズを除外し、文字数上限を本文そのものに使えるため）。<article>タグを優先し、
-        # 無ければWordPress系サイトで一般的な entry-content 等のクラス名を持つブロックを探す。
-        # 見つからない/短すぎる場合はページ全体にフォールバックする。
+        # ノイズを除外し、文字数上限を本文そのものに使えるため）。<article>タグ→本文系クラス/ID→
+        # <main>タグの順に探し、見つからない/短すぎる場合はページ全体にフォールバックする。
         content_block = _extract_main_content_block(raw)
         if content_block:
             raw = content_block

@@ -802,7 +802,7 @@ def articles_describe_same_story(first, second):
             len(shared) >= 4 and overlap >= 0.6 and bool(first_bigrams & second_bigrams)
         )
 
-def fetch_article_body(url, char_limit=3000):
+def fetch_article_body(url, char_limit=6000):
     """記事URLから本文テキストを取得して返す"""
     try:
         import urllib.request
@@ -817,6 +817,16 @@ def fetch_article_body(url, char_limit=3000):
 
         # <script> <style> <nav> <header> <footer> <aside> <form> を除去
         raw = re.sub(r'<(script|style|nav|header|footer|aside|form)[^>]*>.*?</\1>', ' ', raw, flags=re.S|re.I)
+
+        # <article>タグがあれば本文とみなし、そこだけを対象にする（ナビ・関連記事・広告などのノイズを除外し、
+        # 文字数上限を本文そのものに使えるようにするため）。関連記事プレビュー等の小さい<article>を
+        # 誤って選ばないよう、最も長いブロックを採用する。見つからないページ構造の場合はページ全体を使う。
+        article_blocks = re.findall(r'<article[^>]*>.*?</article>', raw, flags=re.S|re.I)
+        if article_blocks:
+            longest = max(article_blocks, key=len)
+            if len(re.sub(r'<[^>]+>', '', longest)) > 200:
+                raw = longest
+
         # <p> <li> <h1-6> <br> の前後に改行を挿入
         raw = re.sub(r'<br\s*/?>', '\n', raw, flags=re.I)
         raw = re.sub(r'<(p|li|h[1-6])[^>]*>', '\n', raw, flags=re.I)
@@ -2748,7 +2758,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": "url is required"})
                 return
             print(f"[記事取得] {url}", flush=True)
-            body_text = fetch_article_body(url, char_limit=3000)
+            body_text = fetch_article_body(url)
             self.send_json(200, {"body": body_text})
         elif self.path.startswith("/api/rss"):
             from urllib.parse import urlparse, parse_qs

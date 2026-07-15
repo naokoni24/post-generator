@@ -2669,11 +2669,15 @@ el('imgPromptBtn').onclick=async()=>{
   el('imgPromptBtn').disabled=true;
   el('imgPromptBtn').textContent='生成中...';
   try{
+    // 投稿文生成と同じくfetch_article_body側で既に上限（6,000文字）を掛けているため、
+    // ここでは追加でスライスしない。以前は先頭2,500文字に切り詰めていたため、
+    // 記事後半にある「変化・結論」を見落とし、typicalなBefore/After構成しか
+    // 作れないことがあった。
     const source=lastArticleBody || lastArticle.summary || lastArticle.title;
     const data=await callProxy([{role:'user',content:`以下のIT記事を、日本語の解説インフォグラフィック画像にするための構成要素を考えてください。SNSでよく見る「わかりやすい図解」投稿のような、見出し＋複数ステップ＋マスコットキャラクターのイラストを想定します。
 
 記事タイトル: ${lastArticle.title}
-内容: ${source.slice(0,2500)}
+内容: ${source}
 
 【最重要: 記事内容を正確に反映する】
 - title_ja・sectionsはすべて上記の記事本文（またはRSS概要）に実際に書かれている内容を根拠にする。タイトルからの推測や、記事に書かれていない一般的なAI/IT論で埋めない

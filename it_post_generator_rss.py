@@ -858,6 +858,36 @@ def articles_describe_same_story(first, second):
             len(shared) >= 4 and overlap >= 0.6 and bool(first_bigrams & second_bigrams)
         )
 
+_CONTENT_CLASS_PATTERN = re.compile(
+    r'<(?:article|div|section)\b[^>]*(?:class|id)="[^"]*(?:entry-content|article-body|articleBody|post-content|article-content|articleContent|main-content)[^"]*"[^>]*>',
+    re.I,
+)
+# 本文とみなす領域の開始位置から、この文字数ぶんのHTMLだけを対象にする。
+# 実サイトのHTMLは閉じタグの対応が崩れていることが多く、深さを数えて正確な終了位置を
+# 求めるのは信頼できないため、本文が収まる程度の固定windowで打ち切る簡易的な方法にする。
+_CONTENT_WINDOW_CHARS = 20000
+
+def _extract_main_content_block(raw):
+    """本文とみなせる領域を優先順位順に探して返す。見つからなければNone。"""
+    article_blocks = re.findall(r'<article[^>]*>.*?</article>', raw, flags=re.S|re.I)
+    if article_blocks:
+        longest = max(article_blocks, key=len)
+        if len(re.sub(r'<[^>]+>', '', longest)) > 200:
+            return longest
+
+    match = _CONTENT_CLASS_PATTERN.search(raw)
+    if match:
+        window = raw[match.start():match.start() + _CONTENT_WINDOW_CHARS]
+        # windowの終端がタグの途中で切れていると、閉じられていない"<div..."のような
+        # 断片がタグ除去処理をすり抜けて本文に混入するため、最後の完全なタグ境界で切り直す。
+        last_tag_end = window.rfind(">")
+        if last_tag_end != -1:
+            window = window[:last_tag_end + 1]
+        if len(re.sub(r'<[^>]+>', '', window)) > 200:
+            return window
+
+    return None
+
 def fetch_article_body(url, char_limit=6000, timeout=15):
     """記事URLから本文テキストを取得して返す"""
     cache_key = (url, char_limit)
@@ -878,14 +908,13 @@ def fetch_article_body(url, char_limit=6000, timeout=15):
         # <script> <style> <nav> <header> <footer> <aside> <form> を除去
         raw = re.sub(r'<(script|style|nav|header|footer|aside|form)[^>]*>.*?</\1>', ' ', raw, flags=re.S|re.I)
 
-        # <article>タグがあれば本文とみなし、そこだけを対象にする（ナビ・関連記事・広告などのノイズを除外し、
-        # 文字数上限を本文そのものに使えるようにするため）。関連記事プレビュー等の小さい<article>を
-        # 誤って選ばないよう、最も長いブロックを採用する。見つからないページ構造の場合はページ全体を使う。
-        article_blocks = re.findall(r'<article[^>]*>.*?</article>', raw, flags=re.S|re.I)
-        if article_blocks:
-            longest = max(article_blocks, key=len)
-            if len(re.sub(r'<[^>]+>', '', longest)) > 200:
-                raw = longest
+        # 本文とみなせる領域があれば、そこだけを対象にする（ナビ・関連記事・広告・執筆者紹介などの
+        # ノイズを除外し、文字数上限を本文そのものに使えるため）。<article>タグを優先し、
+        # 無ければWordPress系サイトで一般的な entry-content 等のクラス名を持つブロックを探す。
+        # 見つからない/短すぎる場合はページ全体にフォールバックする。
+        content_block = _extract_main_content_block(raw)
+        if content_block:
+            raw = content_block
 
         # <p> <li> <h1-6> <br> の前後に改行を挿入
         raw = re.sub(r'<br\s*/?>', '\n', raw, flags=re.I)

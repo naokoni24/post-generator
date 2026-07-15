@@ -1084,9 +1084,14 @@ def filter_candidates_with_article_body(candidates, limit, cancel_event=None):
     return valid
 
 def sort_articles_newest_first(articles):
+    # 公式系（公式Blog・GitHub Releases・Docs更新・公式X）は更新頻度がRSSニュース
+    # より低く、単純な新しい順だとRSSニュースに埋もれてほぼ選ばれなくなる。
+    # 公式系を優先タイ（同着扱い）にし、そのタイ内では引き続き新しい順にする。
+    OFFICIAL_TYPES = ("official_blog", "github_release", "docs_update", "official_x")
     return sorted(
         articles,
         key=lambda article: (
+            1 if article.get("type") in OFFICIAL_TYPES else 0,
             article.get("sortTime", 0) or 0,
             article.get("trustScore", 0) or 0,
         ),
@@ -1663,8 +1668,11 @@ def get_articles(
         if removed:
             print(f"[カテゴリ絞り込み] {category}: 関連度の低い候補を{removed}件除外", flush=True)
     def _article_sort_key(a):
+        # official_blogもgithub_release/docs_update/official_xと同じく常に
+        # 優先扱いにする。以前はここに含まれておらず、同一ニュースの重複統合時に
+        # rss_newsの見出しが代表記事として残りやすくなっていた。
         return (
-            0 if (a.get("type") in ("github_release", "docs_update", "official_x")) else (
+            0 if (a.get("type") in ("official_blog", "github_release", "docs_update", "official_x")) else (
                 0 if (lang == "jp" and _is_jp_source(a.get("source", ""))) else
                 0 if (lang != "jp" and not _is_jp_source(a.get("source", ""))) else
                 1

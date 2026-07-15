@@ -38,7 +38,10 @@ class FeedRedirectHandler(HTTPRedirectHandler):
         return self.http_error_302(req, fp, code, msg, headers)
 
     def http_error_308(self, req, fp, code, msg, headers):
-        return self.http_error_302(req, fp, code, msg, headers)
+        # codeを308のまま渡すと、308を知らない古いPythonのredirect_requestが
+        # HTTPErrorを送出してリダイレクトを追跡できない（例: raycast.com→www）。
+        # 挙動が同等の307として処理させる。
+        return self.http_error_302(req, fp, 307, msg, headers)
 
 _APP_ICON_CACHE = None
 APP_ICON_VERSION = "20260704c"
@@ -861,10 +864,11 @@ def articles_describe_same_story(first, second):
 # 本文コンテナとして一般的なclass/id名。主要RSSソース31サイトの実HTML調査に基づく。
 # - [-_]? はハイフン/アンダースコア/連結の揺れを吸収（entry-content, entrybody, c-article_content, articleBody等）
 # - 属性はシングルクォートのサイトもある（The Hacker News等）ため ["\'] で両対応
+# - markdown-bodyはGitHubリリースページのリリースノート本体（ページ内に1箇所のみ）
 _CONTENT_CLASS_PATTERN = re.compile(
     r'<(?:article|div|section|main)\b[^>]*(?:class|id)=["\'][^"\']*(?:'
     r'entry[-_]?content|entry[-_]?body|article[-_]?body|article[-_]?content|'
-    r'post[-_]?content|post[-_]?body|main[-_]?content'
+    r'post[-_]?content|post[-_]?body|main[-_]?content|markdown[-_]?body'
     r')[^"\']*["\'][^>]*>',
     re.I,
 )
@@ -1040,11 +1044,19 @@ def filter_candidates_with_article_body(candidates, limit, cancel_event=None):
         url = article.get("url", "")
         if article.get("type") == "official_x":
             return article, False
-        if urlsplit(url).scheme not in ("http", "https"):
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https"):
             return article, False
-        if article.get("source", "").startswith("Google News"):
+        if article.get("type") in ("official_blog", "github_release", "docs_update"):
+            # 公式ソースはリンク切れがまず無く、ボットブロックで本文が取れない場合でも
+            # （OpenAI Blogの403、HashiCorp Blogの429、AppleのJSページ等）RSS概要で
+            # 投稿文生成できるため、本文の有無では除外しない。
+            return article, True
+        if parts.netloc.endswith("news.google.com") or article.get("source", "").startswith("Google News"):
             # Google NewsのURLはJSリダイレクト用のシェルページで、実記事の本文を
             # 取得できない。実際の記事自体は存在するためRSS概要を使う前提で通す。
+            # ソース名がGoogle Newsでないフィード（例: Google News検索を使うAnthropic Blog）
+            # もあるため、URLのホスト名でも判定する。
             return article, True
         # 本文の有無だけを確認する。本文は同じURLの投稿文生成時にキャッシュから再利用される。
         body = fetch_article_body(url, char_limit=6000, timeout=6)
@@ -1138,9 +1150,14 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
             ]
             for entry in atom_entries:
                 title = strip_tags(entry.findtext('atom:title', '', ns) or _first_text(entry, 'title'))
-                link_el = entry.find('atom:link', ns)
-                if link_el is None:
-                    link_el = next((child for child in _children_by_name(entry, 'link')), None)
+                # Blogger等はrel="replies"（コメントフィード）のlinkが先頭に来るため、
+                # 単純に最初のlinkを取ると記事URLではなくコメントURLを拾ってしまう。
+                # rel="alternate"またはrel無しのlinkを優先し、無ければ先頭にフォールバック。
+                link_els = entry.findall('atom:link', ns) or list(_children_by_name(entry, 'link'))
+                link_el = next(
+                    (el for el in link_els if el.get('rel') in (None, '', 'alternate')),
+                    link_els[0] if link_els else None,
+                )
                 link = link_el.get('href', '') if link_el is not None else ''
                 if not link and link_el is not None and link_el.text:
                     link = link_el.text

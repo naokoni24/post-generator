@@ -708,6 +708,15 @@ RenderでのWeb運用を想定しています。
   - 本文とみなす最低テキスト量を200→500字に引き上げ（実測で正しい本文はほぼ全サイト500字超、誤マッチの関連記事カードは数十〜300字だった）。GitHub Blogのように`post-content`系クラスが目次にだけ付いているサイトの誤マッチを防ぐため、パターン候補のテキストが`<main>`の半分未満なら誤マッチとみなし`<main>`を優先するガードも追加
   - 効果（31サイト実測）: 変更された12サイトすべてで改善、既存20サイトは無変化（リグレッションなし）。主な改善: GitHub Blog 294字→13,032字（誤った小さい`<article>`カード→本文全体）、The New Stack 32,421字のゴミ→6,351字の本文、The Hacker News・CNET Japan・Publickey・MIT Tech Reviewはナビ抜きで本文先頭から開始、日経XTECH 205字→986字（ペイウォールのため上限あり）、AINOW 2,044→3,243字。処理時間は31ページ合計26msと無視できる速さ
   - 検証方法: 実HTMLスナップショットに対し新旧ロジックを並走させ全サイトのpath・文字数・先頭/末尾テキストを比較。合成HTMLでの3パス（article/シングルクォートclass/main）のエンドツーエンドテストも実施
+- 【公式ソースの取得健全性調査・不具合修正】公式系フィード48種（GitHub Releases 21・Docs更新 11・公式Blog 16）の取得と、その記事ページの本文抽出を全数検査した
+  - フィード取得自体は48種すべて正常（最遅1.5秒・失敗ゼロ）。一方で本文抽出・候補フィルタに以下の問題を発見し修正した
+  - 【重大・候補除外バグ修正】本文を取得できない候補を除外する事前フィルタ（`filter_candidates_with_article_body`）が公式ソースにも適用されており、ボットブロックされるOpenAI Blog（HTTP 403）・HashiCorp Blog（429）、JSレンダリングのApple Developer Releases、Google News経由のAnthropic Blogの記事が**候補一覧から無言で除外されていた**。公式3種（official_blog / github_release / docs_update）はリンク切れがまず無くRSS概要で投稿文生成できるため、本文の有無では除外しないように変更
+  - 【Bloggerリンク解析バグ修正】Atomフィードの`<link>`解析が`rel`属性を無視して最初の要素を取っていたため、`rel="replies"`（コメントフィード）が先頭に来るBlogger系（Google Workspace Updates）で記事URLではなくコメントURLを取得していた。`rel="alternate"`またはrel無しを優先するよう修正（194字のゴミ→1,420字の記事本文に改善）
+  - 【308リダイレクトバグ修正】`FeedRedirectHandler.http_error_308`がcode=308のまま`http_error_302`へ委譲していたが、Python 3.11未満の`redirect_request`は308を知らずHTTPErrorを送出するため、Raycast Changelog（raycast.com→www.raycast.comが308）の本文が取得できなかった。挙動が同等の307として処理するよう修正（0字→1,037字）。Renderは新しいPythonのため影響しないが、ローカル（3.9）で顕在化していた
+  - 【GitHubリリースノート抽出改善】GitHubリリースページは`<article>`が無くリリースノートは`<div class="markdown-body">`（ページ内1箇所）にあるため、本文系クラスパターンに`markdown[-_]?body`を追加。従来は`<main>`経由でページ上部のchromeノイズ（"There was an error while loading..."等）が先頭に混入していたが、リリースノート本体から始まるようになった（例: ollama）。ノートがほぼ空のリリース（obsidian等）は改善余地なし
+  - 修正後の公式48ソース実測: 本文良好42・少なめ2・本文なし4（OpenAI 403 / HashiCorp 429 / AppleのJSページ / Anthropic=Google Newsシェル）。本文なし4種はクライアント側では対処不能だが、上記フィルタ修正により候補には残り、投稿文生成時はRSS概要にフォールバックする
+  - 事前フィルタのGoogle News判定をソース名前方一致に加えURLホスト名（news.google.com）でも行うようにし、ソース名がGoogle Newsでないフィード（Anthropic Blog等）も正しく概要フォールバック扱いになるよう堅牢化
+  - ニュース系31サイトのリグレッションテストも実施し、全サイトで抽出結果に変化がないことを確認済み
 - 【iOS自動ズーム修正】投稿文生成後に画面が拡大されて見える不具合を修正
   - 原因: iOS Safariは、フォーカス可能なテキスト入力要素（`input`・`textarea`・`contenteditable`）のフォントサイズが16px未満だとフォーカス時に自動的にページを拡大する仕様がある。投稿文編集エリア `.tweet-box`（`contenteditable="true"`）が `font-size: 14px` だったため、投稿文生成後にこの要素をタップ/フォーカスすると画面が拡大されていた
   - 修正: `.tweet-box` を16pxに変更。あわせてログイン画面の `input`（`font-size: .95rem` ≈ 15.2px）も同じ原因になり得るため16pxに統一

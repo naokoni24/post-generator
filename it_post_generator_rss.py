@@ -258,8 +258,12 @@ RSS_FEEDS = {
         {"url": "https://blog.google/products/gemini/rss/", "source": "Google Gemini Blog"},
         {"url": "https://blogs.nvidia.com/feed/", "source": "NVIDIA Blog"},
         {"url": "https://www.amazon.science/index.rss", "source": "Amazon Science"},
-        # Anthropicは公式RSSが無いためGoogle News経由で公式発表を優先取得する
-        {"url": "https://news.google.com/rss/search?q=site:anthropic.com+when:3d&hl=en-US&gl=US&ceid=US:en", "source": "Anthropic Blog"},
+        # Anthropicは公式RSSが無いためGoogle News経由で公式発表を優先取得する。
+        # site:anthropic.com（パス指定なし）だと「Log in | Verification Portal」等の
+        # ログイン・ポータルページまで拾ってしまうため、記事が置かれる/newsパスに限定する。
+        # 更新頻度が低いためwhen:3dだと0件になりやすく、14dで安定した件数を確保する
+        # （実際に何日以内の記事として表示するかはアプリ側のrecent_days判定に従う）。
+        {"url": "https://news.google.com/rss/search?q=site:anthropic.com/news+when:14d&hl=en-US&gl=US&ceid=US:en", "source": "Anthropic Blog"},
     ],
     "クラウド・AWS": [
         # 国内
@@ -2404,39 +2408,35 @@ el('selectBtn').onclick=async()=>{
       ? `\n\n【他媒体での報道状況】\n「${article.title}」は他${coverageCount-1}媒体でも同様のニュースが確認できた（既出度が高い話題）。\n単純な事実紹介だけに終わらない独自性のある切り口を選ぶこと。`
       : '';
 
-    // ③ 独自の切り口を決定
-    setStatus(true,'独自の切り口を検討中...');
+    // ③④ 独自の切り口と記事構成を1回のAPI呼び出しでまとめて決定
+    // （以前は切り口→構成の2回に分けて逐次呼び出していたが、後者は前者の結果を
+    // 使うだけで対話的な調整は不要なため、同じ指示を1回のJSON生成にまとめて
+    // レイテンシとAPI呼び出し回数を削減する）
+    setStatus(true,'切り口と構成を検討中...');
     let angle='記事の具体的な変化と、それが利用者・実務に与える影響';
+    let outline=[];
     try{
-      const angleData=await callProxy([{role:'user',content:`以下の記事について、SNS投稿として書く際の「独自の切り口」を1つ決めてください。
+      const angleOutlineData=await callProxy([{role:'user',content:`以下の記事について、SNS投稿として書く際の「独自の切り口」と「投稿の構成」を決めてください。
 
 ${contextText}${coverageNote}
 
-【ルール】
+【切り口のルール】
 - 単なる事実の要約ではなく、読者の興味を引く視点・観点を1つ選ぶ
 - 記事に実際に書かれている情報に基づくこと（推測や記事にない一般論で切り口を作らない）
-- 出力は切り口を表す日本語1文（30〜60文字程度）のみ。前置き・説明・「切り口:」のようなラベルは不要`}]);
-      const generatedAngle=angleData.text.trim().replace(/^切り口[：:]\s*/,'');
+- 切り口は日本語1文（30〜60文字程度）
+
+【構成のルール】
+- 決定した切り口をもとに、投稿がどう展開するかを表す2〜4個の見出し（各10〜20文字程度）を考える
+
+出力はJSON形式のみで回答する。説明や前置き、Markdownのコードブロックは一切不要。
+形式: {"angle": "切り口の文", "outline": ["見出し1", "見出し2", ...]}`}], true);
+      const parsed=JSON.parse(angleOutlineData.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,''));
+      const generatedAngle=(parsed.angle||'').trim();
       if(generatedAngle)angle=generatedAngle;
+      if(Array.isArray(parsed.outline))outline=parsed.outline;
     }catch(e){
-      console.warn('切り口の生成に失敗。既定の切り口で続行します。',e);
+      console.warn('切り口・構成の生成に失敗。既定の切り口で続行します。',e);
     }
-
-    // ④ 記事構成を作成
-    setStatus(true,'記事構成を作成中...');
-    let outline=[];
-    try{
-      const outlineData=await callProxy([{role:'user',content:`以下の記事と、決定した切り口をもとに、SNS投稿の構成を箇条書きで考えてください。
-${contextText}
-
-切り口: ${angle}
-
-【ルール】
-- 投稿がどう展開するかを表す2〜4個の見出し（各10〜20文字程度）を考える
-- 出力はJSON配列のみ。説明や前置き、Markdownのコードブロックは不要。例: ["○○の発表内容","△△という数値の意味","実務目線での考察"]`}], true);
-      outline=JSON.parse(outlineData.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,''));
-      if(!Array.isArray(outline))outline=[];
-    }catch(e){ console.warn('構成の生成に失敗。構成なしで続行します。',e); }
     const angleOutlineInstruction=`\n\n【決定済みの切り口・構成（必ず反映する）】\n切り口: ${angle}${outline.length?`\n構成:\n${outline.map((o,i)=>`${i+1}. ${o}`).join('\n')}`:''}`;
     setStatus(true,'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める
@@ -2657,23 +2657,45 @@ el('copyBtn').onclick=async()=>{
   }catch{showError('コピーに失敗');}
 };
 
-function markPosted(art,tweet){
-  const now=new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
-  postHistory.unshift({title:art.title,tweet,time:now});
-  if(postHistory.length>9)postHistory.pop();
-  el('historySection').style.display='block';
+const POST_HISTORY_KEY='it_post_history_v1';
+function todayKeyJST(){
+  // サーバー側の「今日」判定と同じくJSTの日付で揃える
+  return new Date(Date.now()+9*60*60*1000).toISOString().slice(0,10);
+}
+function renderHistoryList(){
+  el('historySection').style.display=postHistory.length?'block':'none';
   el('historyList').innerHTML=postHistory.map((h,i)=>`
     <div class="history-item" onclick="loadHistory(${i})">
       <span class="hi-title">${h.title}</span>
       <span class="hi-time">${h.time}</span>
     </div>`).join('');
 }
+function markPosted(art,tweet){
+  const now=new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+  postHistory.unshift({title:art.title,tweet,time:now});
+  if(postHistory.length>9)postHistory.pop();
+  renderHistoryList();
+  try{
+    localStorage.setItem(POST_HISTORY_KEY,JSON.stringify({date:todayKeyJST(),items:postHistory}));
+  }catch(e){ console.warn('投稿履歴の保存に失敗',e); }
+}
+function loadPostHistory(){
+  // 「今日の投稿履歴」というラベルの通り、日付（JST）が変わっていたら破棄する
+  try{
+    const raw=localStorage.getItem(POST_HISTORY_KEY);
+    if(!raw)return;
+    const data=JSON.parse(raw);
+    if(data.date!==todayKeyJST()||!Array.isArray(data.items))return;
+    postHistory=data.items;
+    renderHistoryList();
+  }catch(e){ console.warn('投稿履歴の読み込みに失敗',e); }
+}
 function loadHistory(i){
   const h=postHistory[i];el('tweetBox').innerText=h.tweet;updateChar();
   el('resultCard').style.display='block';
 }
 
-renderCats();renderLangs();
+renderCats();renderLangs();loadPostHistory();
 </script>
 </body>
 </html>
@@ -2984,10 +3006,43 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(500, {"error": str(e)})
 
 
+DEFAULT_WARMUP_CATEGORY = "AI・機械学習"
+
+def warm_up_default_category():
+    """起動直後（Renderのスリープ復帰時など）の最初の検索が、フィードが
+    軒並み未キャッシュのために遅く・不安定（早期終了で母集団が小さくなる）に
+    ならないよう、デフォルトカテゴリのRSSキャッシュを事前に温めておく。
+    article_typeはget_articles()が実際に使う値と揃える必要がある
+    （_RSS_CACHEはfeed_url単位のキーでarticle_typeを区別しないため、
+    ここで誤った型を渡すとキャッシュ経由で本番の取得結果まで誤分類される）。
+    """
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        tasks = (
+            [(f, None) for f in RSS_FEEDS.get(DEFAULT_WARMUP_CATEGORY, [])]
+            + [(f, "github_release") for f in GITHUB_RELEASE_FEEDS.get(DEFAULT_WARMUP_CATEGORY, [])]
+            + [(f, "docs_update") for f in DOCS_UPDATE_FEEDS.get(DEFAULT_WARMUP_CATEGORY, [])]
+        )
+        with ThreadPoolExecutor(max_workers=max(10, len(tasks))) as executor:
+            list(executor.map(
+                lambda t: fetch_rss(t[0]["url"], t[0]["source"], limit=RSS_PER_FEED_LIMIT, article_type=t[1], timeout=RSS_FETCH_TIMEOUT),
+                tasks,
+            ))
+        print(f"[起動時ウォームアップ] {DEFAULT_WARMUP_CATEGORY}のフィード{len(tasks)}件を事前取得しました", flush=True)
+    except Exception as e:
+        print(f"[起動時ウォームアップ] 失敗: {e}", flush=True)
+
 def main():
     if not API_KEY:
         print("⚠️  GEMINI_API_KEY が設定されていません")
         print("   export GEMINI_API_KEY=... を実行してから再起動してください\n")
+
+    if BASIC_USER and BASIC_PASS and not os.environ.get("COOKIE_SECRET"):
+        print("⚠️  COOKIE_SECRET が未設定のため、ログインパスワード(BASIC_PASS)を")
+        print("   Cookie署名鍵として代用しています。ログイン用パスワードとは")
+        print("   別の値を COOKIE_SECRET に設定することを推奨します。\n")
+
+    threading.Thread(target=warm_up_default_category, daemon=True).start()
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     url = f"http://localhost:{PORT}"

@@ -1990,8 +1990,7 @@ const OPINION_STYLES=[
 let activeOpinionStyle='practical';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
-const MAX_ORIGINAL_ARTICLES=3;
-let candidates=[], selectedIndices=[], postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
+let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
 let lastFetchInfo=null;
 let currentFetchRequestId=null;
 let currentFetchController=null;
@@ -2236,15 +2235,14 @@ function renderCands(){
     el('candidatesList').innerHTML='';
   }else{
     el('candidatesList').innerHTML=visibleCandidates.map(({a,origIdx},pos)=>{
-    const selOrder=selectedIndices.indexOf(origIdx);
-    const sel=selOrder>=0;
+    const sel=selectedIdx===origIdx;
     const title=escapeHtml(a.title);
     const summary=escapeHtml(a.summary);
     const source=escapeHtml(a.source);
     const published=escapeHtml(a.published);
     const typeLabel=escapeHtml(a.typeLabel||'RSSニュース');
     const url=escapeHtml(a.url);
-    const checkLabel=sel?(selectedIndices.length>1?String(selOrder+1):'✓'):'';
+    const checkLabel=sel?'✓':'';
     return `<div class="cand-card${sel?' selected':''}" onclick="selectCand(${origIdx})">
       <div class="cand-num">${pos+1}</div>
       <div class="cand-body">
@@ -2265,7 +2263,7 @@ function renderCands(){
   }
   // 記事選択後は、感想スタイルを投稿文生成ボタンの直上に表示
   const opPanel=el('opinionPanel');
-  if(selectedIndices.length>=1){
+  if(selectedIdx>=0){
     el('selectedOpinionSlot').appendChild(opPanel);
     opPanel.style.display='block';
   }else{
@@ -2277,23 +2275,13 @@ function renderCands(){
 }
 
 function selectCand(i){
-  const pos=selectedIndices.indexOf(i);
-  if(pos>=0){
-    selectedIndices.splice(pos,1);
-  }else{
-    if(selectedIndices.length>=MAX_ORIGINAL_ARTICLES){
-      showError(`選択できる記事は最大${MAX_ORIGINAL_ARTICLES}件までです`);
-      return;
-    }
-    selectedIndices.push(i);
-  }
+  selectedIdx=selectedIdx===i?-1:i;
   updateStickyBar();
   renderCands();
 }
 
 function updateStickyBar(){
-  const n=selectedIndices.length;
-  if(n===0){
+  if(selectedIdx<0){
     el('selectBtn').disabled=true;
     el('stickyBar').style.display='none';
     document.body.classList.remove('has-sticky');
@@ -2302,13 +2290,8 @@ function updateStickyBar(){
   el('selectBtn').disabled=false;
   el('stickyBar').style.display='block';
   document.body.classList.add('has-sticky');
-  if(n===1){
-    el('stickyTitle').textContent=candidates[selectedIndices[0]]?.title||'';
-    el('selectBtn').textContent='✏️ 投稿文を生成';
-  }else{
-    el('stickyTitle').textContent=`${n}件選択中（オリジナル記事を作成）`;
-    el('selectBtn').textContent=`🧩 ${n}件からオリジナル記事を作成`;
-  }
+  el('stickyTitle').textContent=candidates[selectedIdx]?.title||'';
+  el('selectBtn').textContent='✏️ 投稿文を生成';
 }
 
 async function translateCandidatesInBackground(){
@@ -2326,11 +2309,13 @@ async function translateCandidatesInBackground(){
       showError('一部の記事を翻訳できませんでした。少し待ってから候補を再取得してください。');
     }
     if(data.articles&&data.articles.length){
-      const selectedUrls=selectedIndices.map(i=>candidates[i]?.url).filter(Boolean);
+      const selectedArticle=selectedIdx>=0?candidates[selectedIdx]:null;
       candidates=data.articles;
-      if(selectedUrls.length){
-        selectedIndices=selectedUrls.map(u=>candidates.findIndex(a=>a.url===u)).filter(i=>i>=0);
-      }
+      selectedIdx=selectedArticle?candidates.findIndex(a=>
+        selectedArticle.url
+          ? a.url===selectedArticle.url
+          : a.title===selectedArticle.title&&a.source===selectedArticle.source
+      ):-1;
       renderCands();
     }
   }catch(e){
@@ -2366,7 +2351,7 @@ el('generateBtn').onclick=async()=>{
   fetchCancelled=false;
   currentFetchRequestId=newRequestId();
   currentFetchController=new AbortController();
-  selectedIndices=[];visibleCount=INITIAL_VISIBLE_COUNT;el('selectBtn').disabled=true;
+  selectedIdx=-1;visibleCount=INITIAL_VISIBLE_COUNT;el('selectBtn').disabled=true;
   el('opinionPanel').style.display='none';
   el('stickyBar').style.display='none';
   document.body.classList.remove('has-sticky');
@@ -2411,49 +2396,39 @@ el('generateBtn').onclick=async()=>{
 };
 
 el('selectBtn').onclick=async()=>{
-  if(!selectedIndices.length)return;
-  const articles=selectedIndices.map(i=>candidates[i]).filter(Boolean);
-  if(!articles.length)return;
-  const isMulti=articles.length>1;
-  const shareUrl=shareArticleUrl(articles[0]);
-  const genBtnLabel=isMulti?`🧩 ${articles.length}件からオリジナル記事を作成`:'✏️ 投稿文を生成';
+  if(selectedIdx<0)return;
+  const article=candidates[selectedIdx];
+  if(!article)return;
+  const shareUrl=shareArticleUrl(article);
+  const genBtnLabel='✏️ 投稿文を生成';
   el('selectBtn').disabled=true;
   el('selectBtn').innerHTML='<div class="spinner"></div>生成中...';
   setStatus(true,'記事本文を取得中...');
   try{
-    // 各記事の本文を取得（失敗してもRSS要約にフォールバック）
-    const bodies=await Promise.all(articles.map(async(art)=>{
-      if(art.url && art.type !== 'official_x'){
-        try{
-          const br = await fetch(`/api/fetch_article?url=${encodeURIComponent(art.url)}`);
-          const bd = await br.json();
-          if(bd.body && bd.body.length > 100) return bd.body;
-        }catch(e){ console.warn('記事取得失敗', e); }
-      }
-      return '';
-    }));
-    const articleBody=bodies[0]||'';
-    const contextText=isMulti
-      ? articles.map((a,idx)=>{
-          const content=bodies[idx]?`内容:\n${bodies[idx]}`:`概要: ${a.summary||'概要なし'}`;
-          return `【記事${idx+1}】\nタイトル: ${a.title}\nソース: ${a.source}\n${content}`;
-        }).join('\n\n')
-      : (articleBody?`記事本文（抜粋）:\n${articleBody}`:`RSS概要: ${articles[0].summary||'概要なし'}`);
+    // 記事本文を取得（失敗してもRSS概要にフォールバック）
+    let articleBody='';
+    if(article.url && article.type !== 'official_x'){
+      try{
+        const br=await fetch(`/api/fetch_article?url=${encodeURIComponent(article.url)}`);
+        const bd=await br.json();
+        if(bd.body && bd.body.length>100)articleBody=bd.body;
+      }catch(e){ console.warn('記事取得失敗',e); }
+    }
+    const contextText=articleBody
+      ? `記事本文（抜粋）:\n${articleBody}`
+      : `RSS概要: ${article.summary||'概要なし'}`;
 
     // 他媒体での既出度合い（⑥類似確認）: 候補取得時に記録したcoverageCountを使う
-    const coverageNotes=articles.map(a=>{
-      const c=a.coverageCount||1;
-      return c>1?`「${a.title}」は他${c-1}媒体でも同様のニュースが確認できた（既出度が高い話題）`:null;
-    }).filter(Boolean);
-    const coverageNote=coverageNotes.length
-      ? `\n\n【他媒体での報道状況】\n${coverageNotes.join('\n')}\nこの話題は複数媒体が既に報じているため、単純な事実紹介だけに終わらない独自性のある切り口を選ぶこと。`
+    const coverageCount=article.coverageCount||1;
+    const coverageNote=coverageCount>1
+      ? `\n\n【他媒体での報道状況】\n「${article.title}」は他${coverageCount-1}媒体でも同様のニュースが確認できた（既出度が高い話題）。\n単純な事実紹介だけに終わらない独自性のある切り口を選ぶこと。`
       : '';
 
     // ③ 独自の切り口を決定
     setStatus(true,'独自の切り口を検討中...');
     let angle='記事の具体的な変化と、それが利用者・実務に与える影響';
     try{
-      const angleData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}について、SNS投稿として書く際の「独自の切り口」を1つ決めてください。
+      const angleData=await callProxy([{role:'user',content:`以下の記事について、SNS投稿として書く際の「独自の切り口」を1つ決めてください。
 
 ${contextText}${coverageNote}
 
@@ -2471,7 +2446,7 @@ ${contextText}${coverageNote}
     setStatus(true,'記事構成を作成中...');
     let outline=[];
     try{
-      const outlineData=await callProxy([{role:'user',content:`以下の記事${isMulti?'群':''}と、決定した切り口をもとに、SNS投稿の構成を箇条書きで考えてください。
+      const outlineData=await callProxy([{role:'user',content:`以下の記事と、決定した切り口をもとに、SNS投稿の構成を箇条書きで考えてください。
 ${contextText}
 
 切り口: ${angle}
@@ -2483,7 +2458,7 @@ ${contextText}
       if(!Array.isArray(outline))outline=[];
     }catch(e){ console.warn('構成の生成に失敗。構成なしで続行します。',e); }
     const angleOutlineInstruction=`\n\n【決定済みの切り口・構成（必ず反映する）】\n切り口: ${angle}${outline.length?`\n構成:\n${outline.map((o,i)=>`${i+1}. ${o}`).join('\n')}`:''}`;
-    setStatus(true, isMulti?'オリジナル記事を生成中...':'投稿文を生成中...');
+    setStatus(true,'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める
     const includeOpinion=el('includeOpinion').checked;
     const opinionStyleMap={
@@ -2502,45 +2477,14 @@ ${contextText}
     };
     const opinionInstruction=includeOpinion
       ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 前半の内容を踏まえて視点を切り替え、下記スタイルの内容を書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かない。文章の内容・トーンの変化だけで視点の転換を示すこと\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
-    const targetLenText=isMulti?'日本語500〜800文字程度':'日本語350〜500文字程度';
-    const shortMinChars=isMulti?250:150;
+    const targetLenText='日本語350〜500文字程度';
+    const shortMinChars=150;
     // 本文のみ生成（ハッシュタグ・URLは後付け）
-    const mainPrompt=isMulti
-      ? `以下の複数の記事を統合し、独自の視点でまとめたX投稿の本文を日本語で作成してください。単なる並列紹介ではなく、複数記事を並べて見る価値が伝わる統合にしてください。
-
-${contextText}
-
-【最重要: 記事内容を具体的・正確に反映する】
-- 各記事に実際に書かれている情報だけを根拠にする。推測や一般論で埋めない
-- 複数記事に共通する論点・対照的な視点・時系列の変化などを見つけ、それを軸に統合する
-- 各記事から具体的な事実（固有名詞・数値・機能名・日付など）を最低1つずつ盛り込む
-- 専門用語・略語が出てきたら、一般読者にも伝わるよう簡潔に噛み砕いて説明する
-
-【構成（厳守）】
-1. 前半: 複数記事の内容を統合し、共通点/対比点を踏まえて具体的に説明する
-2. 後半: ${includeOpinion?`前半の内容を踏まえて視点を切り替え、下記スタイルの内容を書く（「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かず、文章の内容・トーンの変化だけで視点の転換を示すこと）\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}`:'（感想は不要）'}
-
-【文体（読みやすさ・惹きつけ方）】
-- 書き出しの1文で読者の目を引く（意外な数値・変化・対比・問いかけなど）。「〜が発表されました」のような単調な書き出しは避ける
-- 一文は40字前後を目安に区切り、長すぎる一文をだらだら続けない。文の長さや語尾に変化をつけ、単調なリズムにしない
-- 「〜である」「〜となっている」のような硬い報告文調ではなく、語りかけるような自然な日本語にする
-- 難しい概念は身近な例やたとえに置き換えて説明する
-- 1〜2文ごとに改行を入れ、スマホ画面でも読みやすい見た目にする
-
-【文字数（X Premiumアカウントのため長文投稿可）】
-- ${targetLenText}
-- 文字数を埋めるための水増しはせず、各記事にある具体的な情報で自然に厚みを持たせる
-- 短すぎる投稿（${shortMinChars}文字未満）は禁止
-- 本文のみ回答
-
-【その他の制約】
-- 「速報」という言葉は絶対に使わない
-- ハッシュタグ・URLは不要${angleOutlineInstruction}`
-      : `以下の記事についてX投稿の本文を日本語で作成してください。
+    const mainPrompt=`以下の記事についてX投稿の本文を日本語で作成してください。
 
 【記事情報】
-タイトル: ${articles[0].title}
-ソース: ${articles[0].source}（${articles[0].typeLabel||'RSSニュース'}）
+タイトル: ${article.title}
+ソース: ${article.source}（${article.typeLabel||'RSSニュース'}）
 ${contextText}
 
 【最重要: 記事内容を具体的・正確に反映する】
@@ -2577,12 +2521,12 @@ ${contextText}
     // 本文 + URL を組み立て（ハッシュタグなし）
     const calcLen=(t)=>{const u=t.match(/https?:\/\/[^\s]+/g)||[];return xWeightedLen(t.replace(/https?:\/\/[^\s]+/g,''))+u.length*23;};
     let body = data.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-    const urls=articles.map(a=>shareArticleUrl(a)).filter(Boolean);
-    const urlStr  = urls.map(u=>'\n'+u).join('');
+    const urls=shareUrl?[shareUrl]:[];
+    const urlStr=shareUrl?'\n'+shareUrl:'';
     let tweet = body + urlStr;
 
     // 短すぎる場合は、上限に収まる範囲で本文だけを一度だけ膨らませる
-    const expandThreshold=isMulti?900:600;
+    const expandThreshold=600;
     const bodyLen = calcLen(body);
     if(bodyLen < expandThreshold){
       setStatus(true,'投稿文を少し詳しく調整中...');
@@ -2619,25 +2563,15 @@ URL: ${urls.join(', ')||'なし'}
         tweet = newBody + urlStr;
       }catch(e){ console.warn('自動短縮失敗',e); }
     }
-    const repArt=isMulti?{
-      title: articles.map(a=>a.title).join(' ／ '),
-      source: articles.map(a=>a.source).join('・'),
-      published: articles[0].published,
-      typeLabel: 'オリジナル記事',
-      trustScore: Math.min(...articles.map(a=>a.trustScore||70)),
-      url: articles[0].url,
-    }:articles[0];
-    lastArticle=repArt;
-    lastArticleBody=isMulti?bodies.filter(Boolean).join('\n\n'):articleBody;
+    lastArticle=article;
+    lastArticleBody=articleBody;
     el('imgPromptBox').style.display='none';
     el('imgPromptBox').textContent='';
     el('imgPromptCopyBtn').style.display='none';
     el('resultHeader').innerHTML=`
       <span class="badge lang">${activeLang==='en'?'🌐 海外':'🇯🇵 国内'}</span>`;
-    el('articleMeta').textContent=isMulti
-      ? `${articles.length}件の記事を統合　${repArt.published}　オリジナル記事`
-      : `${repArt.source}　${repArt.published}　${repArt.typeLabel||'RSSニュース'}・信頼度${repArt.trustScore||70}`;
-    el('articleTitle').innerHTML=(!isMulti && repArt.url)?`<a href="${escapeHtml(repArt.url)}" target="_blank">${escapeHtml(repArt.title)}</a>`:escapeHtml(repArt.title);
+    el('articleMeta').textContent=`${article.source}　${article.published}　${article.typeLabel||'RSSニュース'}・信頼度${article.trustScore||70}`;
+    el('articleTitle').innerHTML=article.url?`<a href="${escapeHtml(article.url)}" target="_blank">${escapeHtml(article.title)}</a>`:escapeHtml(article.title);
     el('angleOutlineBox').innerHTML=`<div class="angle-line">🎯 ${escapeHtml(angle)}</div>${outline.length?`<ul class="outline-list">${outline.map(o=>`<li>${escapeHtml(o)}</li>`).join('')}</ul>`:''}`;
     el('angleOutlineBox').style.display='block';
     el('tweetBox').innerText=tweet;
@@ -2652,7 +2586,7 @@ URL: ${urls.join(', ')||'なし'}
     el('resultCard').style.display='block';
     el('xBtn').onclick=()=>{
       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(el('tweetBox').innerText)}`,'_blank');
-      markPosted(repArt,el('tweetBox').innerText);
+      markPosted(article,el('tweetBox').innerText);
     };
   }catch(e){
     setStatus(false);

@@ -1197,18 +1197,6 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
         print(f"[RSS] {source} 取得失敗: {e}", flush=True)
         return []
 
-def fetch_feed_group(feeds_by_category, category, article_type, per_feed_limit=3):
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    feeds = feeds_by_category.get(category, [])
-    if not feeds:
-        return []
-    items = []
-    with ThreadPoolExecutor(max_workers=min(len(feeds), 6)) as executor:
-        futures = [executor.submit(fetch_rss, f["url"], f["source"], per_feed_limit, article_type) for f in feeds]
-        for future in as_completed(futures):
-            items += future.result()
-    return items
-
 def get_official_x_candidates(category, limit=2):
     candidates = []
     for account in OFFICIAL_X_ACCOUNTS.get(category, [])[:limit]:
@@ -1228,16 +1216,6 @@ def get_official_x_candidates(category, limit=2):
         article["published"] = "最新"
         candidates.append(article)
     return candidates
-
-def is_english(text):
-    text = (text or "").strip()
-    if not text:
-        return False
-    latin_count = sum(1 for c in text if ("A" <= c <= "Z") or ("a" <= c <= "z"))
-    jp_count = sum(1 for c in text if "\u3040" <= c <= "\u30ff" or "\u4e00" <= c <= "\u9fff")
-    if jp_count >= 4 and jp_count / max(latin_count + jp_count, 1) >= 0.25:
-        return False
-    return latin_count >= 8 and latin_count > jp_count
 
 def needs_translation(article):
     def has_latin_text(value):
@@ -1990,7 +1968,7 @@ const OPINION_STYLES=[
 let activeOpinionStyle='practical';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
-let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
+let candidates=[], selectedIdx=-1, postHistory=[], visibleCount=INITIAL_VISIBLE_COUNT;
 let lastFetchInfo=null;
 let currentFetchRequestId=null;
 let currentFetchController=null;
@@ -1998,7 +1976,6 @@ let fetchCancelled=false;
 let lastArticle=null, lastArticleBody='';
 
 function el(id){return document.getElementById(id);}
-function getTags(){return tags.filter(t=>t.on).map(t=>t.t).join(' ');}
 
 function pillStyle(active){
   return active
@@ -2316,6 +2293,9 @@ async function translateCandidatesInBackground(){
           ? a.url===selectedArticle.url
           : a.title===selectedArticle.title&&a.source===selectedArticle.source
       ):-1;
+      // 翻訳後の候補置き換えで選択記事が見つからなかった場合(selectedIdx=-1)に、
+      // 古いタイトルのままのスティッキーバーが残らないよう表示も更新する
+      updateStickyBar();
       renderCands();
     }
   }catch(e){

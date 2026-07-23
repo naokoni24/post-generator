@@ -38,7 +38,10 @@ class FeedRedirectHandler(HTTPRedirectHandler):
         return self.http_error_302(req, fp, code, msg, headers)
 
     def http_error_308(self, req, fp, code, msg, headers):
-        return self.http_error_302(req, fp, code, msg, headers)
+        # codeを308のまま渡すと、308を知らない古いPythonのredirect_requestが
+        # HTTPErrorを送出してリダイレクトを追跡できない（例: raycast.com→www）。
+        # 挙動が同等の307として処理させる。
+        return self.http_error_302(req, fp, 307, msg, headers)
 
 _APP_ICON_CACHE = None
 APP_ICON_VERSION = "20260704c"
@@ -74,35 +77,75 @@ WEB_MANIFEST = json.dumps({
     ],
 }, ensure_ascii=False)
 
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = "claude-haiku-4-5"
+API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# 投稿文は低コストなFlash-Liteを既定にする。環境変数で上位モデルに変更可能。
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# 翻訳もFlash-Liteを既定にする（コストが約1/3、レート制限枠も生成用と共通で運用実績あり）。
+# 品質を優先したい場合は環境変数 GEMINI_TRANSLATION_MODEL で gemini-2.5-flash 等に変更可能。
+GEMINI_TRANSLATION_MODEL = os.environ.get("GEMINI_TRANSLATION_MODEL", "gemini-2.5-flash-lite")
 
-def call_claude(prompt_text, max_tokens=800, json_mode=False):
-    """Claude APIにプロンプトを送りテキストを返す。"""
-    body = {
-        "model": CLAUDE_MODEL,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt_text}],
+def call_gemini(prompt_text, max_tokens=800, json_mode=False, model=None, max_retries=4):
+    """Gemini APIにプロンプトを送りテキストを返す。429等は自動リトライする。"""
+    selected_model = model or GEMINI_MODEL
+    # 事実抽出・記事要約で表現がぶれにくいよう、創造性を控えめにする。
+    generation_config = {
+        "maxOutputTokens": max_tokens,
+        "temperature": 0.25 if json_mode else 0.35,
+        "topP": 0.9,
     }
+    if json_mode:
+        generation_config["responseMimeType"] = "application/json"
+    # 投稿生成では短い推論枠を与えて事実照合を安定させる。翻訳用Liteは速度を優先する。
+    thinking_budget = 0 if "lite" in selected_model.lower() else 512
+    generation_config["thinkingConfig"] = {"thinkingBudget": thinking_budget}
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+        "generationConfig": generation_config,
+    }
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{selected_model}:generateContent?{urlencode({'key': API_KEY})}"
+    )
     req = Request(
-        "https://api.anthropic.com/v1/messages",
+        endpoint,
         data=json.dumps(body).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": API_KEY,
-            "anthropic-version": "2023-06-01",
-        },
+        headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urlopen(req, timeout=30) as res:
-        result = json.loads(res.read())
-    usage = result.get("usage")
+    result = None
+    for attempt in range(max_retries):
+        try:
+            with urlopen(req, timeout=30) as res:
+                result = json.loads(res.read())
+            break
+        except HTTPError as e:
+            retryable = e.code == 429 or e.code >= 500
+            if not retryable or attempt == max_retries - 1:
+                raise
+            retry_after = e.headers.get("Retry-After") if e.headers else None
+            try:
+                wait_seconds = float(retry_after) if retry_after else (2 ** attempt)
+            except ValueError:
+                wait_seconds = 2 ** attempt
+            print(
+                f"[Gemini] {e.code}エラー。{wait_seconds:.1f}秒待って再試行します "
+                f"({attempt + 1}/{max_retries})",
+                flush=True,
+            )
+            time.sleep(wait_seconds)
+    usage = result.get("usageMetadata")
     if usage:
-        print(f"[Claude] tokens in={usage.get('input_tokens')} out={usage.get('output_tokens')}", flush=True)
-    text_block = next((b for b in result.get("content", []) if b.get("type") == "text"), None)
-    if not text_block:
-        raise RuntimeError(f"Claude API: テキストブロックがありません (response={result})")
-    return text_block["text"]
+        print(
+            f"[Gemini] tokens in={usage.get('promptTokenCount')} "
+            f"out={usage.get('candidatesTokenCount')}",
+            flush=True,
+        )
+    candidates = result.get("candidates", [])
+    parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+    text = "".join(part.get("text", "") for part in parts if part.get("text"))
+    if not text:
+        raise RuntimeError(f"Gemini API: テキストがありません (response={result})")
+    return text
 PORT       = int(os.environ.get("PORT", 8765))
 RECENT_DAYS = 0
 RSS_FETCH_TIMEOUT = 4.0
@@ -115,7 +158,6 @@ RSS_PER_FEED_LIMIT = 10
 TODAY_FULL_FETCH_MULTIPLIER = 10
 SPECIAL_PER_FEED_LIMIT = 5
 RSS_EMPTY_RETRY_DELAY = 0.8
-RESULT_CACHE_TTL = 1800
 
 # Cookie認証（環境変数で設定。未設定なら認証なし）
 BASIC_USER = os.environ.get("BASIC_USER", "")
@@ -224,6 +266,12 @@ RSS_FEEDS = {
         {"url": "https://blog.google/products/gemini/rss/", "source": "Google Gemini Blog"},
         {"url": "https://blogs.nvidia.com/feed/", "source": "NVIDIA Blog"},
         {"url": "https://www.amazon.science/index.rss", "source": "Amazon Science"},
+        # Anthropicは公式RSSが無いためGoogle News経由で公式発表を優先取得する。
+        # site:anthropic.com（パス指定なし）だと「Log in | Verification Portal」等の
+        # ログイン・ポータルページまで拾ってしまうため、記事が置かれる/newsパスに限定する。
+        # 更新頻度が低いためwhen:3dだと0件になりやすく、14dで安定した件数を確保する
+        # （実際に何日以内の記事として表示するかはアプリ側のrecent_days判定に従う）。
+        {"url": "https://news.google.com/rss/search?q=site:anthropic.com/news+when:14d&hl=en-US&gl=US&ceid=US:en", "source": "Anthropic Blog"},
     ],
     "クラウド・AWS": [
         # 国内
@@ -231,6 +279,7 @@ RSS_FEEDS = {
         {"url": "https://cloud.watch.impress.co.jp/data/rss/1.0/clw/feed.rdf", "source": "クラウド Watch"},
         {"url": "https://www.publickey1.jp/atom.xml", "source": "Publickey"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        {"url": "https://news.google.com/rss/search?q=%28%E3%82%AF%E3%83%A9%E3%82%A6%E3%83%89+OR+AWS+OR+Azure+OR+%22Google+Cloud%22%29+when%3A1d&hl=ja&gl=JP&ceid=JP%3Aja", "source": "Google News クラウド"},
         # 海外
         {"url": "https://aws.amazon.com/blogs/aws/feed/", "source": "AWS Blog"},
         {"url": "https://thenewstack.io/feed/", "source": "The New Stack"},
@@ -250,13 +299,16 @@ RSS_FEEDS = {
         # 国内
         {"url": "https://rss.itmedia.co.jp/rss/2.0/news_security.xml", "source": "ITmedia セキュリティ"},
         {"url": "https://internet.watch.impress.co.jp/data/rss/1.0/iw/feed.rdf", "source": "INTERNET Watch"},
+        {"url": "https://www.security-next.com/feed", "source": "Security NEXT"},
+        {"url": "https://www.jpcert.or.jp/rss/jpcert.rdf", "source": "JPCERT/CC"},
+        {"url": "https://news.google.com/rss/search?q=%28%E3%82%B5%E3%82%A4%E3%83%90%E3%83%BC%E6%94%BB%E6%92%83+OR+%E8%84%86%E5%BC%B1%E6%80%A7+OR+%E3%83%A9%E3%83%B3%E3%82%B5%E3%83%A0%E3%82%A6%E3%82%A7%E3%82%A2%29+when%3A1d&hl=ja&gl=JP&ceid=JP%3Aja", "source": "Google News セキュリティ"},
         # 海外
         {"url": "https://feeds.feedburner.com/TheHackersNews", "source": "The Hacker News"},
         {"url": "https://krebsonsecurity.com/feed/", "source": "Krebs on Security"},
         {"url": "https://www.darkreading.com/rss.xml", "source": "Dark Reading"},
         {"url": "https://isc.sans.edu/rssfeed_full.xml", "source": "SANS Internet Storm Center"},
         {"url": "https://www.helpnetsecurity.com/feed/", "source": "Help Net Security"},
-        {"url": "https://www.bleepingcomputer.com/feed/", "source": "BleepingComputer"},
+        {"url": "https://therecord.media/feed", "source": "The Record"},
         {"url": "https://securityaffairs.com/feed", "source": "Security Affairs"},
         # 当日の脅威・脆弱性ニュースを補う高頻度フィード
         {"url": "https://news.google.com/rss/search?q=%28cybersecurity+OR+vulnerability+OR+ransomware+OR+%22data+breach%22+OR+%22zero-day%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Security"},
@@ -282,6 +334,8 @@ RSS_FEEDS = {
         # 国内
         {"url": "https://thebridge.jp/feed", "source": "BRIDGE"},
         {"url": "https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml", "source": "ITmedia NEWS"},
+        {"url": "https://coralcap.co/feed/", "source": "Coral Capital"},
+        {"url": "https://news.google.com/rss/search?q=%28%E3%82%B9%E3%82%BF%E3%83%BC%E3%83%88%E3%82%A2%E3%83%83%E3%83%97+OR+%E8%B3%87%E9%87%91%E8%AA%BF%E9%81%94+OR+%E3%83%99%E3%83%B3%E3%83%81%E3%83%A3%E3%83%BC%29+when%3A1d&hl=ja&gl=JP&ceid=JP%3Aja", "source": "Google News スタートアップ"},
         # 海外
         {"url": "https://techcrunch.com/category/startups/feed/", "source": "TechCrunch Startups"},
         {"url": "https://venturebeat.com/feed/", "source": "VentureBeat"},
@@ -299,6 +353,7 @@ RSS_FEEDS = {
         {"url": "https://www.lifehacker.jp/feed/index.xml", "source": "Lifehacker Japan"},
         {"url": "https://zenn.dev/feed", "source": "Zenn"},
         {"url": "https://b.hatena.ne.jp/hotentry/it.rss", "source": "はてブ IT"},
+        {"url": "https://forest.watch.impress.co.jp/data/rss/1.0/wf/feed.rdf", "source": "窓の杜"},
         # 海外
         {"url": "https://www.producthunt.com/feed", "source": "Product Hunt"},
         {"url": "https://lifehacker.com/rss", "source": "Lifehacker"},
@@ -314,6 +369,8 @@ RSS_FEEDS = {
         {"url": "https://pc.watch.impress.co.jp/data/rss/1.0/pcw/feed.rdf", "source": "PC Watch"},
         {"url": "https://k-tai.watch.impress.co.jp/data/rss/1.0/ktw/feed.rdf", "source": "ケータイ Watch"},
         {"url": "https://www.gizmodo.jp/index.xml", "source": "Gizmodo Japan"},
+        {"url": "https://av.watch.impress.co.jp/data/rss/1.0/avw/feed.rdf", "source": "AV Watch"},
+        {"url": "https://news.google.com/rss/search?q=%28%E3%82%AC%E3%82%B8%E3%82%A7%E3%83%83%E3%83%88+OR+%E3%82%B9%E3%83%9E%E3%83%9B+OR+%E5%AE%B6%E9%9B%BB%29+when%3A1d&hl=ja&gl=JP&ceid=JP%3Aja", "source": "Google News ガジェット"},
         # 海外
         {"url": "https://www.engadget.com/rss.xml", "source": "Engadget"},
         {"url": "https://www.theverge.com/rss/index.xml", "source": "The Verge"},
@@ -337,7 +394,7 @@ RSS_FEEDS = {
         {"url": "https://www.informationweek.com/rss.xml", "source": "InformationWeek"},
         {"url": "https://venturebeat.com/category/enterprise/feed", "source": "VentureBeat Enterprise"},
         {"url": "https://www.zdnet.com/news/rss.xml", "source": "ZDNet"},
-        {"url": "https://www.techrepublic.com/rss/", "source": "TechRepublic"},
+        {"url": "https://www.computerworld.com/feed/", "source": "Computerworld"},
         # 当日のDX・エンタープライズニュースを補う高頻度フィード
         {"url": "https://news.google.com/rss/search?q=%28%22digital+transformation%22+OR+%22enterprise+software%22+OR+SaaS+OR+%22business+technology%22%29+when%3A1d&hl=en-US&gl=US&ceid=US%3Aen", "source": "Google News Business Tech"},
     ],
@@ -346,6 +403,7 @@ RSS_FEEDS = {
 GITHUB_RELEASE_FEEDS = {
     "AI・機械学習": [
         {"url": "https://github.com/openai/openai-python/releases.atom", "source": "GitHub Releases: openai/openai-python"},
+        {"url": "https://github.com/ollama/ollama/releases.atom", "source": "GitHub Releases: ollama/ollama"},
     ],
     "クラウド・AWS": [
         {"url": "https://github.com/aws/aws-cdk/releases.atom", "source": "GitHub Releases: aws/aws-cdk"},
@@ -385,6 +443,13 @@ GITHUB_RELEASE_FEEDS = {
 
 DOCS_UPDATE_FEEDS = {
     "AI・機械学習": [
+        {"url": "https://openai.com/products/release-notes/rss.xml", "source": "OpenAI Product Release Notes"},
+        {
+            "url": "https://support.claude.com/en/articles/12138966-release-notes",
+            "source": "Claude Help Center Release Notes",
+            "format": "claude_help_html",
+        },
+        {"url": "https://platform.claude.com/docs/en/release-notes/feed.xml", "source": "Claude Platform Release Notes"},
     ],
     "クラウド・AWS": [
         {"url": "https://aws.amazon.com/about-aws/whats-new/recent/feed/", "source": "AWS What's New"},
@@ -486,6 +551,7 @@ OFFICIAL_BLOG_SOURCES = {
     "Amazon Science",
     "OpenAI Blog",
     "OpenAI News / Docs",
+    "Anthropic Blog",
     "Google DeepMind Blog",
     "Hugging Face Blog",
     "Google AI Blog",
@@ -496,6 +562,27 @@ OFFICIAL_BLOG_SOURCES = {
     "CNCF Blog",
     "HashiCorp Blog",
 }
+
+# AIカテゴリでは、主要公式ソースの完了を確認するまで件数による早期終了を行わない。
+# 公式情報の最終枠は企業グループ単位（OpenAI / Anthropic / Google・Gemini）で確保する。
+AI_PRIORITY_OFFICIAL_SOURCES = {
+    "OpenAI Blog",
+    "OpenAI Product Release Notes",
+    "Anthropic Blog",
+    "Claude Help Center Release Notes",
+    "Claude Platform Release Notes",
+    "Google DeepMind Blog",
+    "Google AI Blog",
+    "Google Gemini Blog",
+}
+AI_PRIORITY_OFFICIAL_GROUPS = (
+    ("OpenAI", {"OpenAI Blog", "OpenAI Product Release Notes"}),
+    (
+        "Anthropic",
+        {"Anthropic Blog", "Claude Help Center Release Notes", "Claude Platform Release Notes"},
+    ),
+    ("Google/Gemini", {"Google DeepMind Blog", "Google AI Blog", "Google Gemini Blog"}),
+)
 
 JP_PRIORITY_SOURCES = [
     "ITmedia",
@@ -515,6 +602,14 @@ JP_PRIORITY_SOURCES = [
     "ケータイ Watch",
     "クラウド Watch",
     "はてブ",
+    "Security NEXT",
+    "JPCERT",
+    "Coral Capital",
+    "窓の杜",
+    "Google News セキュリティ",
+    "Google News スタートアップ",
+    "Google News クラウド",
+    "Google News ガジェット",
 ]
 
 CATEGORY_RELEVANCE_KEYWORDS = {
@@ -651,7 +746,7 @@ CATEGORY_RELEVANCE_FILTER_SOURCES = {
         "日経XTECH",
         "はてブ IT",
         "ZDNet",
-        "TechRepublic",
+        "Computerworld",
     },
 }
 
@@ -663,8 +758,13 @@ def is_category_relevant(article, category):
     haystack = " ".join(str(article.get(k, "")) for k in ("title", "summary")).lower()
     return any(keyword.lower() in haystack for keyword in keywords)
 
+def strip_invisible_chars(text):
+    """ゼロ幅文字等の不可視Unicode文字を除去する（プロンプトインジェクション対策）。"""
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+
 def strip_tags(text):
-    return re.sub(r'<[^>]+>', '', html.unescape(text or '')).strip()
+    cleaned = re.sub(r'<[^>]+>', '', html.unescape(text or '')).strip()
+    return strip_invisible_chars(cleaned)
 
 def compact_text(text, limit=140):
     text = re.sub(r'\s+', ' ', strip_tags(text)).strip()
@@ -801,8 +901,87 @@ def articles_describe_same_story(first, second):
             len(shared) >= 4 and overlap >= 0.6 and bool(first_bigrams & second_bigrams)
         )
 
-def fetch_article_body(url, char_limit=3000):
+# 本文コンテナとして一般的なclass/id名。主要RSSソース31サイトの実HTML調査に基づく。
+# - [-_]? はハイフン/アンダースコア/連結の揺れを吸収（entry-content, entrybody, c-article_content, articleBody等）
+# - 属性はシングルクォートのサイトもある（The Hacker News等）ため ["\'] で両対応
+# - markdown-bodyはGitHubリリースページのリリースノート本体（ページ内に1箇所のみ）
+_CONTENT_CLASS_PATTERN = re.compile(
+    r'<(?:article|div|section|main)\b[^>]*(?:class|id)=["\'][^"\']*(?:'
+    r'entry[-_]?content|entry[-_]?body|article[-_]?body|article[-_]?content|'
+    r'post[-_]?content|post[-_]?body|main[-_]?content|markdown[-_]?body'
+    r')[^"\']*["\'][^>]*>',
+    re.I,
+)
+# 本文とみなす領域の開始位置から、この文字数ぶんのHTMLだけを対象にする。
+# 実サイトのHTMLは閉じタグの対応が崩れていることが多く、深さを数えて正確な終了位置を
+# 求めるのは信頼できないため、本文が収まる程度の固定windowで打ち切る簡易的な方法にする。
+# 20kだとThe Hacker News等のマークアップが重いサイトで本文後半が切れ、40kだと関連記事
+# ノイズが増えるため30kにしている。
+_CONTENT_WINDOW_CHARS = 30000
+# 候補ブロックを本文とみなす最低テキスト量。実測では正しい本文はほぼ全サイトで500字を
+# 超え、誤マッチ（関連記事カード等）は数十〜300字程度だった。
+_CONTENT_MIN_TEXT = 500
+# クラス/IDパターンの探索は先頭数箇所まで（巨大ページでの無駄な走査を防ぐ）
+_CONTENT_PATTERN_MAX_TRIES = 8
+
+def _content_text_len(block):
+    """HTMLブロック中の可視テキスト量の概算。"""
+    return len(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', block)))
+
+def _extract_main_content_block(raw):
+    """本文とみなせる領域を優先順位順に探して返す。見つからなければNone。
+
+    優先順位（主要31ソースの実HTML調査で決定）:
+    1. <article>タグの最長ブロック（十分なテキストがある場合。最も精度が高い）
+    2. entry-content等の本文系クラス/IDを持つブロック（<article>を使わないWordPress系等）
+       ただし<main>と比べてテキストが半分未満しかない場合は誤マッチとみなしスキップ
+       （例: GitHub Blogは post-content 系クラスが目次にだけ付いている）
+    3. <main>タグ（ページ全体よりはヘッダ・ナビを除外できる）
+    """
+    article_blocks = re.findall(r'<article[^>]*>.*?</article>', raw, flags=re.S|re.I)
+    if article_blocks:
+        longest = max(article_blocks, key=len)
+        if _content_text_len(longest) >= _CONTENT_MIN_TEXT:
+            return longest
+
+    main_match = re.search(r'<main[^>]*>.*?</main>', raw, flags=re.S|re.I)
+    main_block = main_match.group(0) if main_match else None
+    main_len = _content_text_len(main_block) if main_block else 0
+
+    # 同名クラスが複数箇所にある場合（導入ボックスと本文が別divのCodeZine等）や、
+    # 最初のマッチが隠しテンプレートの場合があるため、複数試してテキスト最長のwindowを使う。
+    best_window = None
+    best_len = 0
+    for i, match in enumerate(_CONTENT_CLASS_PATTERN.finditer(raw)):
+        if i >= _CONTENT_PATTERN_MAX_TRIES:
+            break
+        window = raw[match.start():match.start() + _CONTENT_WINDOW_CHARS]
+        # windowの終端がタグの途中で切れていると、閉じられていない"<div..."のような
+        # 断片がタグ除去処理をすり抜けて本文に混入するため、最後の完全なタグ境界で切り直す。
+        last_tag_end = window.rfind(">")
+        if last_tag_end != -1:
+            window = window[:last_tag_end + 1]
+        window_len = _content_text_len(window)
+        if window_len > best_len:
+            best_window, best_len = window, window_len
+    if (
+        best_window is not None
+        and best_len >= _CONTENT_MIN_TEXT
+        and (not main_block or best_len >= main_len * 0.5)
+    ):
+        return best_window
+
+    if main_block and main_len >= _CONTENT_MIN_TEXT:
+        return main_block
+
+    return None
+
+def fetch_article_body(url, char_limit=6000, timeout=15):
     """記事URLから本文テキストを取得して返す"""
+    cache_key = (url, char_limit)
+    cached = _ARTICLE_BODY_CACHE.get(cache_key)
+    if cached and time.monotonic() - cached[0] < _ARTICLE_BODY_CACHE_TTL:
+        return cached[1]
     try:
         import urllib.request
         opener = urllib.request.build_opener(FeedRedirectHandler())
@@ -811,11 +990,19 @@ def fetch_article_body(url, char_limit=3000):
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "ja,en;q=0.9",
         })
-        with opener.open(req, timeout=15) as res:
+        with opener.open(req, timeout=timeout) as res:
             raw = res.read().decode("utf-8", errors="replace")
 
         # <script> <style> <nav> <header> <footer> <aside> <form> を除去
         raw = re.sub(r'<(script|style|nav|header|footer|aside|form)[^>]*>.*?</\1>', ' ', raw, flags=re.S|re.I)
+
+        # 本文とみなせる領域があれば、そこだけを対象にする（ナビ・関連記事・広告・執筆者紹介などの
+        # ノイズを除外し、文字数上限を本文そのものに使えるため）。<article>タグ→本文系クラス/ID→
+        # <main>タグの順に探し、見つからない/短すぎる場合はページ全体にフォールバックする。
+        content_block = _extract_main_content_block(raw)
+        if content_block:
+            raw = content_block
+
         # <p> <li> <h1-6> <br> の前後に改行を挿入
         raw = re.sub(r'<br\s*/?>', '\n', raw, flags=re.I)
         raw = re.sub(r'<(p|li|h[1-6])[^>]*>', '\n', raw, flags=re.I)
@@ -832,6 +1019,7 @@ def fetch_article_body(url, char_limit=3000):
         # 文字数制限
         if len(text) > char_limit:
             text = text[:char_limit] + "..."
+        _ARTICLE_BODY_CACHE[cache_key] = (time.monotonic(), text)
         return text
     except Exception as e:
         print(f"[記事取得] 失敗: {e}", flush=True)
@@ -841,7 +1029,8 @@ _RSS_CACHE = {}  # {feed_url: (timestamp, items_list)}
 _RSS_CACHE_TTL = 300  # 5分キャッシュ
 _RSS_FAIL_CACHE = {}  # {feed_url: timestamp}
 _RSS_FAIL_CACHE_TTL = 600  # 10分間、失敗したフィードをスキップ
-_RESULT_CACHE = {}  # {(category, lang, include_x, days): (timestamp, articles)}
+_ARTICLE_BODY_CACHE = {}  # {(url, char_limit): (timestamp, article_body)}
+_ARTICLE_BODY_CACHE_TTL = 1800  # 本文確認済みURLを30分間再利用
 _CANCEL_EVENTS = {}
 _CANCEL_LOCK = threading.Lock()
 
@@ -880,109 +1069,109 @@ def shutdown_executor(executor):
     except TypeError:
         executor.shutdown(wait=False)
 
-def merge_result_cache(cache_key, articles, limit, days_limit):
-    """同じ検索条件の前回結果で、一時的な取得漏れを補完する。"""
-    import time as _time
-    now = _time.time()
-    cached = _RESULT_CACHE.get(cache_key)
-    merged = [dict(article) for article in articles]
-    seen = {key for article in merged for key in article_identity_keys(article)}
+def filter_candidates_with_article_body(candidates, limit, cancel_event=None):
+    """本文を取得できない候補を候補一覧から除外する。"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    if cached and now - cached[0] < RESULT_CACHE_TTL:
-        for article in cached[1]:
-            if len(merged) >= limit:
-                break
-            identity_keys = article_identity_keys(article)
-            if (
-                not identity_keys
-                or any(key in seen for key in identity_keys)
-                or any(articles_describe_same_story(article, existing) for existing in merged)
-            ):
-                continue
-            age_days = article_age_days(article)
-            if (
-                article.get("type") == "official_x" and days_limit != 0
-            ):
-                pass
-            elif age_days is None or age_days < 0 or age_days > days_limit:
-                continue
-            restored = dict(article)
-            restored["ageDays"] = age_days
-            merged.append(restored)
-            seen.update(identity_keys)
+    # 最初に選ばれた候補を優先しつつ、本文取得不可の穴を補う予備候補も確認する。
+    # 本文取得に失敗する候補が多いカテゴリでもlimit件を確保しやすいよう余裕を持たせる。
+    check_limit = min(len(candidates), max(limit * 3, limit))
+    check_items = candidates[:check_limit]
+    if not check_items:
+        return []
 
-    _RESULT_CACHE[cache_key] = (now, [dict(article) for article in merged[:limit]])
-    return merged[:limit]
+    def _check(article):
+        url = article.get("url", "")
+        if article.get("type") == "official_x":
+            return article, False
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https"):
+            return article, False
+        if article.get("type") in ("official_blog", "github_release", "docs_update"):
+            # 公式ソースはリンク切れがまず無く、ボットブロックで本文が取れない場合でも
+            # （OpenAI Blogの403、HashiCorp Blogの429、AppleのJSページ等）RSS概要で
+            # 投稿文生成できるため、本文の有無では除外しない。
+            return article, True
+        if parts.netloc.endswith("news.google.com") or article.get("source", "").startswith("Google News"):
+            # Google NewsのURLはJSリダイレクト用のシェルページで、実記事の本文を
+            # 取得できない。実際の記事自体は存在するためRSS概要を使う前提で通す。
+            # ソース名がGoogle Newsでないフィード（例: Google News検索を使うAnthropic Blog）
+            # もあるため、URLのホスト名でも判定する。
+            return article, True
+        # 本文の有無だけを確認する。本文は同じURLの投稿文生成時にキャッシュから再利用される。
+        body = fetch_article_body(url, char_limit=6000, timeout=6)
+        return article, len(body.strip()) >= 180
+
+    valid_urls = set()
+    # I/Oバウンドな本文取得なのでワーカー数を増やしても安全。6並列では
+    # 検証対象が多い時に時間がかかりすぎ、有効な候補が集まりにくかった。
+    with ThreadPoolExecutor(max_workers=min(len(check_items), 20)) as executor:
+        futures = [executor.submit(_check, article) for article in check_items]
+        for future in as_completed(futures):
+            ensure_not_cancelled(cancel_event)
+            try:
+                article, is_valid = future.result()
+            except Exception as e:
+                print(f"[本文確認] 失敗: {e}", flush=True)
+                continue
+            if is_valid:
+                valid_urls.add(article.get("url", ""))
+
+    valid = [article for article in check_items if article.get("url", "") in valid_urls][:limit]
+    excluded = len(check_items) - len(valid_urls)
+    if excluded:
+        print(f"[本文確認] 本文を取得できない候補を{excluded}件除外（有効{len(valid)}件）", flush=True)
+    return valid
 
 def sort_articles_newest_first(articles):
+    # 日付順を常に守る。公式系の優先は、公開日時が同じ場合だけのタイブレークにする。
+    # 先に種別を並べると、数日前の公式記事が今日のニュースより上に表示されてしまう。
+    OFFICIAL_TYPES = ("official_blog", "github_release", "docs_update", "official_x")
     return sorted(
         articles,
         key=lambda article: (
             article.get("sortTime", 0) or 0,
+            1 if article.get("type") in OFFICIAL_TYPES else 0,
             article.get("trustScore", 0) or 0,
         ),
         reverse=True,
     )
 
-def diversify_articles_by_source(articles, limit, preferred_cap=2, hard_cap=None):
-    """同一ソースの占有を抑えつつ、必要件数に届くまで段階的に上限を緩める。"""
-    ordered = sort_articles_newest_first(articles)
-    if not ordered:
-        return []
+def reserve_ai_official_articles(articles, limit, official_candidates=None):
+    """期間外も含む公式母集団から3社の最新を各1件、選定プールの先頭に確保する。"""
+    official_candidates = sort_articles_newest_first(official_candidates or articles)
+    reserved = []
+    reserved_urls = set()
+    missing_groups = []
+    for group_name, sources in AI_PRIORITY_OFFICIAL_GROUPS:
+        article = next((item for item in official_candidates if item.get("source") in sources), None)
+        if article is None:
+            missing_groups.append(group_name)
+            continue
+        article = dict(article)
+        article["isPriorityOfficialLatest"] = True
+        article["officialGroup"] = group_name
+        url = article.get("url", "")
+        reserved.append(article)
+        if url:
+            reserved_urls.add(url)
 
-    selected = []
-    selected_urls = set()
-    source_counts = {}
+    if missing_groups:
+        print(
+            f"[公式最新] 候補を取得できません: {missing_groups}",
+            flush=True,
+        )
+    if reserved:
+        print(
+            f"[公式最新] {len(reserved)}件確保: "
+            f"{[(item.get('officialGroup'), item.get('source')) for item in reserved]}",
+            flush=True,
+        )
 
-    def _add_with_cap(source_cap):
-        for article in ordered:
-            if len(selected) >= limit:
-                break
-            url = article.get("url", "")
-            if not url or url in selected_urls:
-                continue
-            source = article.get("source", "")
-            if source_counts.get(source, 0) >= source_cap:
-                continue
-            selected.append(article)
-            selected_urls.add(url)
-            source_counts[source] = source_counts.get(source, 0) + 1
-
-    max_available_per_source = {}
-    for article in ordered:
-        source = article.get("source", "")
-        max_available_per_source[source] = max_available_per_source.get(source, 0) + 1
-    max_cap = max(max_available_per_source.values(), default=preferred_cap)
-    if hard_cap is not None:
-        max_cap = min(max_cap, hard_cap)
-
-    for cap in range(preferred_cap, max_cap + 1):
-        _add_with_cap(cap)
-        if len(selected) >= limit:
-            break
-
-    if len(selected) < limit and hard_cap is None:
-        _add_with_cap(limit)
-
-    return sort_articles_newest_first(selected[:limit])
-
-def prioritize_same_day_articles(articles, limit, preferred_cap=2, hard_cap=None):
-    """当日記事をできるだけ残し、不足分だけ過去記事で補完する。"""
-    today = [
-        article for article in articles
-        if article.get("type") == "official_x" or article.get("ageDays") == 0
-    ]
-    older = [
-        article for article in articles
-        if article.get("type") != "official_x" and article.get("ageDays") != 0
-    ]
-    today = sort_articles_newest_first(today)
-    if len(today) >= limit:
-        return today[:limit]
-
-    remaining = limit - len(today)
-    older = diversify_articles_by_source(older, remaining, preferred_cap=preferred_cap, hard_cap=hard_cap)
-    return sort_articles_newest_first(today + older)[:limit]
+    # 本文確認の前に先頭へ置くことで、後続の新着記事が多くても公式枠を落とさない。
+    # 本文確認後には改めて新着順へ戻すため、画面上の通常の時系列表示は維持される。
+    remaining = [item for item in articles if item.get("url", "") not in reserved_urls]
+    return (reserved + remaining)[:max(limit * 3, limit)]
 
 def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TIMEOUT):
     import time as _time
@@ -1000,7 +1189,11 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
     try:
         import urllib.request
         opener = urllib.request.build_opener(FeedRedirectHandler())
-        req = Request(feed_url, headers={"User-Agent": "Mozilla/5.0"})
+        req = Request(feed_url, headers={
+            # 単純な"Mozilla/5.0"だとBot判定で接続を切るサイトがあるため、実ブラウザ相当のUAにする。
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        })
         with opener.open(req, timeout=timeout) as res:
             raw = res.read()
         root = ET.fromstring(raw)
@@ -1037,9 +1230,14 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
             ]
             for entry in atom_entries:
                 title = strip_tags(entry.findtext('atom:title', '', ns) or _first_text(entry, 'title'))
-                link_el = entry.find('atom:link', ns)
-                if link_el is None:
-                    link_el = next((child for child in _children_by_name(entry, 'link')), None)
+                # Blogger等はrel="replies"（コメントフィード）のlinkが先頭に来るため、
+                # 単純に最初のlinkを取ると記事URLではなくコメントURLを拾ってしまう。
+                # rel="alternate"またはrel無しのlinkを優先し、無ければ先頭にフォールバック。
+                link_els = entry.findall('atom:link', ns) or list(_children_by_name(entry, 'link'))
+                link_el = next(
+                    (el for el in link_els if el.get('rel') in (None, '', 'alternate')),
+                    link_els[0] if link_els else None,
+                )
                 link = link_el.get('href', '') if link_el is not None else ''
                 if not link and link_el is not None and link_el.text:
                     link = link_el.text
@@ -1074,17 +1272,112 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
         print(f"[RSS] {source} 取得失敗: {e}", flush=True)
         return []
 
-def fetch_feed_group(feeds_by_category, category, article_type, per_feed_limit=3):
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    feeds = feeds_by_category.get(category, [])
-    if not feeds:
+def fetch_claude_help_release_notes(page_url, source, limit=10, timeout=RSS_FETCH_TIMEOUT):
+    """Claude Help Centerの単一HTMLページから日付・更新見出し・概要を抽出する。"""
+    import time as _time
+    failed_at = _RSS_FAIL_CACHE.get(page_url)
+    if failed_at and _time.time() - failed_at < _RSS_FAIL_CACHE_TTL:
         return []
-    items = []
-    with ThreadPoolExecutor(max_workers=min(len(feeds), 6)) as executor:
-        futures = [executor.submit(fetch_rss, f["url"], f["source"], per_feed_limit, article_type) for f in feeds]
-        for future in as_completed(futures):
-            items += future.result()
-    return items
+
+    cached = _RSS_CACHE.get(page_url)
+    if cached:
+        ts, cached_items = cached
+        if _time.time() - ts < _RSS_CACHE_TTL:
+            return cached_items[:limit]
+
+    try:
+        import urllib.request
+        opener = urllib.request.build_opener(FeedRedirectHandler())
+        req = Request(
+            page_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+            },
+        )
+        with opener.open(req, timeout=timeout) as res:
+            document = res.read().decode("utf-8", errors="replace")
+
+        body_match = re.search(r'<div[^>]*class=["\'][^"\']*\barticle_body\b[^"\']*["\'][^>]*>', document, re.I)
+        if not body_match:
+            raise ValueError("article_bodyが見つかりません")
+        article_end = document.find("</article>", body_match.end())
+        body_html = document[body_match.end():article_end if article_end >= 0 else None]
+
+        tokens = re.finditer(
+            r'<h3\b(?P<h3_attrs>[^>]*)>(?P<h3>.*?)</h3>|<p\b[^>]*>(?P<p>.*?)</p>',
+            body_html,
+            re.I | re.S,
+        )
+        items = []
+        current_date = ""
+        current_anchor = ""
+        current_title = ""
+        summary_parts = []
+
+        def _commit_entry():
+            if not current_date or not current_title:
+                return
+            try:
+                published = datetime.strptime(current_date, "%B %d, %Y").replace(tzinfo=timezone.utc).isoformat()
+            except ValueError:
+                return
+            entry_id = hashlib.sha1(current_title.encode("utf-8")).hexdigest()[:12]
+            link = f"{page_url}?{urlencode({'entry': entry_id})}"
+            if current_anchor:
+                link += f"#{current_anchor}"
+            items.append(build_article(
+                current_title,
+                link,
+                source,
+                published,
+                article_type="docs_update",
+                summary=" ".join(summary_parts),
+            ))
+
+        for token in tokens:
+            if token.group("h3") is not None:
+                _commit_entry()
+                current_date = strip_tags(token.group("h3"))
+                anchor_match = re.search(r'\bid=["\']([^"\']+)', token.group("h3_attrs") or "", re.I)
+                current_anchor = anchor_match.group(1) if anchor_match else ""
+                current_title = ""
+                summary_parts = []
+                continue
+
+            paragraph_html = token.group("p") or ""
+            paragraph_text = strip_tags(paragraph_html)
+            if not paragraph_text:
+                continue
+            title_match = re.match(
+                r'\s*<(?:b|strong)\b[^>]*>(.*?)</(?:b|strong)>\s*$',
+                paragraph_html,
+                re.I | re.S,
+            )
+            if current_date and title_match:
+                _commit_entry()
+                current_title = strip_tags(title_match.group(1))
+                summary_parts = []
+            elif current_title:
+                summary_parts.append(paragraph_text)
+        _commit_entry()
+
+        _RSS_CACHE[page_url] = (_time.time(), items)
+        _RSS_FAIL_CACHE.pop(page_url, None)
+        return items[:limit]
+    except Exception as e:
+        _RSS_FAIL_CACHE[page_url] = _time.time()
+        print(f"[HTML更新] {source} 取得失敗: {e}", flush=True)
+        return []
+
+def fetch_configured_source(feed, limit, article_type=None, timeout=RSS_FETCH_TIMEOUT):
+    if feed.get("format") == "claude_help_html":
+        return fetch_claude_help_release_notes(
+            feed["url"], feed["source"], limit=limit, timeout=timeout
+        )
+    return fetch_rss(
+        feed["url"], feed["source"], limit=limit, article_type=article_type, timeout=timeout
+    )
 
 def get_official_x_candidates(category, limit=2):
     candidates = []
@@ -1106,39 +1399,78 @@ def get_official_x_candidates(category, limit=2):
         candidates.append(article)
     return candidates
 
-def is_english(text):
-    text = (text or "").strip()
-    if not text:
-        return False
-    latin_count = sum(1 for c in text if ("A" <= c <= "Z") or ("a" <= c <= "z"))
-    jp_count = sum(1 for c in text if "\u3040" <= c <= "\u30ff" or "\u4e00" <= c <= "\u9fff")
-    if jp_count >= 4 and jp_count / max(latin_count + jp_count, 1) >= 0.25:
-        return False
-    return latin_count >= 8 and latin_count > jp_count
-
 def needs_translation(article):
+    def has_latin_text(value):
+        # 英日混在の見出し（例: 「AWS launches 新機能」）も対象にする。
+        # 固有名詞だけの場合もGemini側のルールで英語のまま保持される。
+        return len(re.findall(r"[A-Za-z]{4,}", value or "")) > 0
+
     return (
-        is_english(article.get("title", ""))
-        or is_english(article.get("summary", ""))
+        has_latin_text(article.get("title", ""))
+        or has_latin_text(article.get("summary", ""))
         or article.get("type") in ("github_release", "docs_update")
     )
 
 TRANSLATE_PROMPT_BASE = (
-    "以下のIT記事候補を、ユーザーが選びやすい日本語表示にしてください。\n"
-    "ルール:\n"
-    "- 企業名・サービス名・製品名・人名は英語のまま残す（例: Apple, Meta, Tesla, ChatGPT, AWS）\n"
-    "- 技術用語は一般的な日本語訳を使う\n"
-    "- GitHub Releasesのタイトルは、リポジトリ名とバージョンを残しつつ「何のリリースか」が分かる日本語にする\n"
-    "- summary_ja は80文字以内で、内容や変更点が分かる説明にする\n"
+    "あなたは日本のITニュース編集者です。以下の候補を、正確で自然な日本語の見出しと概要に編集してください。\n"
+    "翻訳・編集ルール（必ず守る）:\n"
+    "- 入力にない事実・数値・評価を足さない。推測で補わない\n"
+    "- 逐語訳や不自然なカタカナ語を避け、日本のITニュース見出しとして簡潔で読みやすく書く\n"
+    "- Apple、AWS、OpenAI、ChatGPT、Claude、Gemini、GitHub、製品名、正式な人名、リポジトリ名、バージョン番号は原則として英語のまま残す\n"
+    "- 一般的な技術用語は自然な日本語にする（例: release→リリース、security vulnerability→脆弱性、deployment→デプロイ）\n"
+    "- タイトルは内容が一読で分かる自然な日本語。原文の情報量を不必要に削らない\n"
+    "- GitHub Releasesは、リポジトリ名とバージョンを残し、「何のリリースか」が分かる表現にする\n"
+    "- summary_ja は80文字以内。記事本文を読まなくても更新点・要点が分かる一文にする\n"
+    "- 原文が既に十分自然な日本語なら、意味を変えずにそのまま返す\n"
     "- JSON配列のみを返す。説明文やMarkdownは不要\n"
     '- 各要素は {"index": 数字, "title_ja": 文字列, "summary_ja": 文字列} の形にする\n\n'
 )
-_TRANSLATION_CACHE = {}
+TRANSLATION_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "translation_cache.json")
+TRANSLATION_CACHE_MAX = 3000
+TRANSLATION_CACHE_VERSION = "gemini-flash-lite-editor-v3"
+
+def _load_translation_cache():
+    try:
+        with open(TRANSLATION_CACHE_FILE, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+        return {
+            (e[1], e[2]): (e[3], e[4])
+            for e in entries
+            # e[3](title_ja)が空のエントリは、過去のバグでtitle_ja空文字が
+            # 永続保存されてしまったものである可能性があるため読み込み時に除外し、
+            # 次回アクセス時に再翻訳を試みられるようにする（自己修復）。
+            if len(e) == 5 and e[0] == TRANSLATION_CACHE_VERSION and e[3]
+        }
+    except Exception:
+        return {}
+
+def _save_translation_cache():
+    try:
+        entries = [
+            [TRANSLATION_CACHE_VERSION, k[0], k[1], v[0], v[1]]
+            for k, v in _TRANSLATION_CACHE.items()
+        ]
+        with open(TRANSLATION_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[翻訳キャッシュ] 保存失敗: {e}", flush=True)
+
+_TRANSLATION_CACHE = _load_translation_cache()
+
+def _cache_set_translation(key, value):
+    _TRANSLATION_CACHE[key] = value
+    if len(_TRANSLATION_CACHE) > TRANSLATION_CACHE_MAX:
+        del _TRANSLATION_CACHE[next(iter(_TRANSLATION_CACHE))]
 
 def _translate_batch(items_in):
     """items_in リストをAPIで翻訳し、結果リストを返す。失敗時は空リスト"""
     prompt = TRANSLATE_PROMPT_BASE + json.dumps(items_in, ensure_ascii=False)
-    text = call_claude(prompt, max_tokens=2200)
+    text = call_gemini(
+        prompt,
+        max_tokens=6000,
+        json_mode=True,
+        model=GEMINI_TRANSLATION_MODEL,
+    )
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
     if not text.startswith("["):
@@ -1147,14 +1479,17 @@ def _translate_batch(items_in):
             text = match.group(0)
     return json.loads(text)
 
-def translate_titles(articles, max_items=20):
+def translate_titles(articles, max_items=None):
     if not API_KEY:
         return articles
-    targets = [
+    targets_all = [
         (i, a)
         for i, a in enumerate(articles)
         if needs_translation(a)
-    ][:max_items]  # 通常は返却候補20件分、検索時はプール分を日本語表示に変換
+    ]
+    # Noneなら返却する候補をすべて翻訳する。検索時の大きな事前プールだけは
+    # 呼び出し元がmax_itemsを指定して上限を設ける。
+    targets = targets_all if max_items is None else targets_all[:max_items]
     if not targets:
         return articles
 
@@ -1177,9 +1512,9 @@ def translate_titles(articles, max_items=20):
         print("[翻訳] キャッシュを使用", flush=True)
         return articles
 
-    # 小さめのバッチで翻訳漏れを減らす
+    # バッチをまとめてAPI呼び出し回数を抑える（呼び出し過多によるレート制限429を避けるため）
     from concurrent.futures import ThreadPoolExecutor as _TPE
-    BATCH_SIZE = 5
+    BATCH_SIZE = 20
     batches = [targets[i:i+BATCH_SIZE] for i in range(0, len(targets), BATCH_SIZE)]
 
     def _do_batch(batch_idx_items):
@@ -1203,7 +1538,8 @@ def translate_titles(articles, max_items=20):
             return []
 
     translated_all = []
-    with _TPE(max_workers=min(len(batches), 6)) as ex:
+    # 同時リクエストがレート制限(429)を誘発しやすいため、直列実行にする。
+    with _TPE(max_workers=1) as ex:
         for result in ex.map(_do_batch, enumerate(batches)):
             translated_all += result
 
@@ -1216,15 +1552,21 @@ def translate_titles(articles, max_items=20):
                 continue
             title_ja = (item.get("title_ja") or "").strip()
             summary_ja = (item.get("summary_ja") or "").strip()
-            if title_ja:
-                articles[orig_idx]["title_en"] = articles[orig_idx]["title"]
-                articles[orig_idx]["title"] = title_ja
+            if not title_ja:
+                # title_jaが空はGemini側の処理漏れ（レート制限・出力形式の乱れ等）とみなす。
+                # ここでapplied扱いにすると再試行対象から外れ、さらに下でキャッシュに
+                # 空文字が永続保存されると、同じ見出しの記事が以後ずっと未翻訳のまま
+                # （英語表示）になり二度と再翻訳されなくなるため、何もせずスキップして
+                # missing_targetsでの再試行に回す。
+                continue
+            articles[orig_idx]["title_en"] = articles[orig_idx]["title"]
+            articles[orig_idx]["title"] = title_ja
             if summary_ja:
                 articles[orig_idx]["summary_en"] = articles[orig_idx].get("summary", "")
                 articles[orig_idx]["summary"] = summary_ja
             original = target_map.get(orig_idx)
             if original:
-                _TRANSLATION_CACHE[(original.get("title", ""), original.get("summary", ""))] = (title_ja, summary_ja)
+                _cache_set_translation((original.get("title", ""), original.get("summary", "")), (title_ja, summary_ja))
             applied.add(orig_idx)
         return applied
 
@@ -1237,8 +1579,8 @@ def translate_titles(articles, max_items=20):
     if missing_targets:
         print(f"[翻訳] 漏れ {len(missing_targets)}件を再試行", flush=True)
         retry_results = []
-        retry_batches = [missing_targets[i:i+3] for i in range(0, len(missing_targets), 3)]
-        with _TPE(max_workers=min(len(retry_batches), 3)) as ex:
+        retry_batches = [missing_targets[i:i+BATCH_SIZE] for i in range(0, len(missing_targets), BATCH_SIZE)]
+        with _TPE(max_workers=1) as ex:
             for result in ex.map(_do_batch, enumerate(retry_batches)):
                 retry_results += result
         applied |= _apply_translations(retry_results, missing_targets)
@@ -1250,11 +1592,12 @@ def translate_titles(articles, max_items=20):
             if repo and version:
                 articles[idx]["title_en"] = article.get("title", "")
                 articles[idx]["title"] = f"{repo} の {version} リリース"
-                _TRANSLATION_CACHE[(article.get("title", ""), article.get("summary", ""))] = (
-                    articles[idx]["title"],
-                    article.get("summary", ""),
+                _cache_set_translation(
+                    (article.get("title", ""), article.get("summary", "")),
+                    (articles[idx]["title"], article.get("summary", "")),
                 )
 
+    _save_translation_cache()
     print(f"[翻訳] 計{len(targets)}件を日本語表示に変換完了", flush=True)
     return articles
 
@@ -1303,7 +1646,9 @@ def get_articles(
             lim = base_lim * multiplier
         else:
             lim = base_lim
-        items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type, timeout=fetch_timeout)
+        items = fetch_configured_source(
+            feed, limit=lim, article_type=article_type, timeout=fetch_timeout
+        )
         return "jp" if _is_jp_source(feed["source"]) else "other", items
 
     def _fetch_group(feed, article_type, per_limit):
@@ -1314,7 +1659,9 @@ def get_articles(
             lim = per_limit * multiplier
         else:
             lim = per_limit
-        items = fetch_rss(feed["url"], feed["source"], limit=lim, article_type=article_type, timeout=fetch_timeout)
+        items = fetch_configured_source(
+            feed, limit=lim, article_type=article_type, timeout=fetch_timeout
+        )
         if keyword and not category:
             return "jp" if _is_jp_source(feed["source"]) else "other", items
         return "special", items
@@ -1355,21 +1702,36 @@ def get_articles(
             other_items.extend(items)
 
     def _recent_candidate_count():
+        # 早期終了の判定では「最終的に候補として残りうる記事」だけを数える。
+        # 取得済み全件で数えると、言語フィルタ・カテゴリ関連度フィルタで後から除外される
+        # 記事でカウントが埋まり、必要なフィードの到着を待たずに打ち切ってしまう。
+        # 例: 海外検索で応答の速い国内フィードだけが先に返るとその時点で打ち切られ、
+        # 海外フィードが全てキャンセルされて言語フィルタ後の候補がほぼ0件になる。
+        if lang == "jp":
+            pool = jp_items + special_items
+        else:
+            pool = special_items + other_items
         seen = set()
         count = 0
-        for article in jp_items + special_items + other_items:
+        for article in pool:
             url = article.get("url", "")
             if not url or url in seen:
                 continue
             seen.add(url)
+            if category and not keyword and not is_category_relevant(article, category):
+                continue
             age_days = article_age_days(article)
             if article.get("type") == "official_x" or (age_days is not None and 0 <= age_days <= days_limit):
                 count += 1
         return count
 
-    executor = ThreadPoolExecutor(max_workers=30 if (keyword and not category) else 12)
+    # カテゴリ別フィード数が増え続けており(最多のAI・機械学習で30件超)、
+    # max_workers=12では全フィードを同時実行できずタイムアウトが多発していた。
+    # I/Oバウンドな取得なのでワーカー数を増やしても安全なため、タスク数に合わせて拡大する。
+    executor = ThreadPoolExecutor(max_workers=max(30, len(all_tasks)))
     futures = {}  # future -> (tag_or_atype, source_name)
     processed = set()
+    required_official_futures = set()
     try:
         for feed, atype in all_tasks:
             ensure_not_cancelled(cancel_event)
@@ -1379,7 +1741,13 @@ def get_articles(
             else:
                 f = executor.submit(_fetch_rss, feed)
                 futures[f] = ("rss", feed["source"])
+            if feed["source"] in AI_PRIORITY_OFFICIAL_SOURCES:
+                required_official_futures.add(f)
         started_at = _time.monotonic()
+
+        def _required_officials_processed():
+            return required_official_futures.issubset(processed)
+
         try:
             completed_iter = as_completed(futures, timeout=fast_budget)
             for future in completed_iter:
@@ -1387,10 +1755,22 @@ def get_articles(
                 tag, items = future.result()
                 processed.add(future)
                 _store_items(tag, items)
+                # 十分な件数が集まっても、AI優先公式ソースの完了前には打ち切らない。
+                if _recent_candidate_count() >= limit and _required_officials_processed():
+                    break
         except TimeoutError:
             pass
 
         ensure_not_cancelled(cancel_event)
+        # fast_budget内に終わらなかった公式ソースは、各取得処理自身のタイムアウトまで
+        # 必ず待つ。これにより高頻度メディア1件だけでlimitに達しても公式を取りこぼさない。
+        required_pending = [f for f in required_official_futures if f not in processed]
+        for future in as_completed(required_pending):
+            ensure_not_cancelled(cancel_event)
+            tag, items = future.result()
+            processed.add(future)
+            _store_items(tag, items)
+
         pending = [future for future in futures if future not in processed and not future.done()]
         if pending and _recent_candidate_count() < limit:
             remaining_budget = max(0.0, max_budget - (_time.monotonic() - started_at))
@@ -1401,6 +1781,8 @@ def get_articles(
                         tag, items = future.result()
                         processed.add(future)
                         _store_items(tag, items)
+                        if _recent_candidate_count() >= limit and _required_officials_processed():
+                            break
                 except TimeoutError:
                     pass
 
@@ -1452,6 +1834,12 @@ def get_articles(
     if lang == "jp":
         # 国内: 海外ソースは候補に含めない
         all_items = jp_items + special_items
+        if category == "AI・機械学習":
+            # AI重要3社の公式情報だけは国内モードでも例外的に含める。
+            all_items += [
+                a for a in other_items
+                if a.get("source") in AI_PRIORITY_OFFICIAL_SOURCES
+            ]
     else:
         # 海外: 国内ソースは候補に含めない
         all_items = special_items + other_items
@@ -1466,8 +1854,11 @@ def get_articles(
         if removed:
             print(f"[カテゴリ絞り込み] {category}: 関連度の低い候補を{removed}件除外", flush=True)
     def _article_sort_key(a):
+        # official_blogもgithub_release/docs_update/official_xと同じく常に
+        # 優先扱いにする。以前はここに含まれておらず、同一ニュースの重複統合時に
+        # rss_newsの見出しが代表記事として残りやすくなっていた。
         return (
-            0 if (a.get("type") in ("github_release", "docs_update", "official_x")) else (
+            0 if (a.get("type") in ("official_blog", "github_release", "docs_update", "official_x")) else (
                 0 if (lang == "jp" and _is_jp_source(a.get("source", ""))) else
                 0 if (lang != "jp" and not _is_jp_source(a.get("source", ""))) else
                 1
@@ -1476,28 +1867,31 @@ def get_articles(
             -a.get("trustScore", 0),
         )
 
-    def _article_pick_key(a):
-        age_days = a.get("ageDays")
-        return (
-            age_days is None,
-            age_days if age_days is not None else 999,
-            -a.get("sortTime", 0),
-            0 if (a.get("type") in ("github_release", "docs_update", "official_x")) else 1,
-            -a.get("trustScore", 0),
-        )
-
     unique.sort(key=_article_sort_key)
     seen = set()
     deduplicated = []
     for article in unique:
         identity_keys = article_identity_keys(article)
-        if (
-            not identity_keys
-            or any(key in seen for key in identity_keys)
-            or any(articles_describe_same_story(article, existing) for existing in deduplicated)
-        ):
+        if not identity_keys:
+            continue
+        match = None
+        if any(key in seen for key in identity_keys):
+            match = next(
+                (e for e in deduplicated if set(article_identity_keys(e)) & set(identity_keys)),
+                None,
+            )
+        if match is None:
+            match = next(
+                (e for e in deduplicated if articles_describe_same_story(article, e)),
+                None,
+            )
+        if match is not None:
+            # 他媒体でも同一ニュースが報道されている件数（自分自身を含む）を記録。
+            # ⑥類似確認（他媒体での既出度合い）のためのシグナルとしてクライアントに渡す。
+            match["coverageCount"] = match.get("coverageCount", 1) + 1
             continue
         seen.update(identity_keys)
+        article["coverageCount"] = 1
         deduplicated.append(article)
     duplicate_count = len(unique) - len(deduplicated)
     if duplicate_count:
@@ -1531,6 +1925,7 @@ def get_articles(
         matched = [a for a in pool if _match(a)]
         matched.sort(key=lambda a: -a.get("sortTime", 0))
         matched = matched[:limit]
+        matched = filter_candidates_with_article_body(matched, limit, cancel_event)
         if translate:
             matched = translate_titles(matched)
         return matched
@@ -1543,84 +1938,26 @@ def get_articles(
             a.get("ageDays") is not None and 0 <= a["ageDays"] <= days_limit
         )
     ]
-    unique = recent
-    unique.sort(key=_article_pick_key)
-    type_caps = {
-        "github_release": 3,
-        "docs_update": 3,
-        "official_x": 2 if include_x else 0,
-        "official_blog": 10,
-        "rss_news": limit,  # per_source制御で多様性を担保するためtype上限は緩める
-    }
-    MAX_PER_SOURCE = 2  # 同一ソースの占有を防ぐ（原則最大2件）
-    type_counts = {}
-    source_counts = {}
-    articles = []
-    selected_urls = set()
-
-    def _add(pool, src_cap):
-        """pool から src_cap 以内で記事を追加。limit に達したら終了"""
-        for article in pool:
-            if len(articles) >= limit:
-                break
-            url = article.get("url", "")
-            if url in selected_urls:
-                continue
-            article_type = article.get("type", "rss_news")
-            source = article.get("source", "")
-            if type_counts.get(article_type, 0) >= type_caps.get(article_type, limit):
-                continue
-            if source_counts.get(source, 0) >= src_cap:
-                continue
-            articles.append(article)
-            selected_urls.add(url)
-            type_counts[article_type] = type_counts.get(article_type, 0) + 1
-            source_counts[source] = source_counts.get(source, 0) + 1
-
-    fresh_pool = [
-        article for article in unique
-        if (article.get("type") == "official_x" and days_limit != 0)
-        or article.get("ageDays") is None
-        or (0 <= article.get("ageDays") <= days_limit)
-    ]
-
-    age_buckets = {}
-    for article in fresh_pool:
-        age = article.get("ageDays")
-        age_key = age if age is not None else 999
-        age_buckets.setdefault(age_key, []).append(article)
-
-    # まず日付ごとのかたまりで選ぶ。当日記事があるのに、別ソースの古い記事で枠が埋まるのを防ぐ。
-    for age_key in sorted(age_buckets):
-        bucket = age_buckets[age_key]
-        _add(bucket, 1)
-        if len(articles) < limit:
-            _add(bucket, MAX_PER_SOURCE)
-        if len(articles) < limit:
-            _add(bucket, MAX_PER_SOURCE + 1)
-        if len(articles) < limit:
-            _add(bucket, MAX_PER_SOURCE + 2)
-        if len(articles) >= limit:
-            break
-
-    if len(articles) < limit:
-        _add(fresh_pool, MAX_PER_SOURCE)
-    if len(articles) < limit:
-        _add(fresh_pool, limit)  # 候補不足時は同一ソース上限を緩和して件数を優先
-    articles = merge_result_cache((category, lang, include_x, days_limit), articles, limit, days_limit)
-    if category and not keyword:
-        articles = prioritize_same_day_articles(
-            articles,
-            limit,
-            preferred_cap=MAX_PER_SOURCE,
-            hard_cap=3,
+    # 取得できた候補を全て新しい順に並べ、上から limit 件を採用する
+    # （ソース・種別ごとの上限は設けない。本文が取得できない候補は
+    # filter_candidates_with_article_body が内部で予備を含めて補う）。
+    recent = sort_articles_newest_first(recent)
+    candidate_pool = recent
+    if category == "AI・機械学習":
+        official_candidates = [
+            a for a in unique
+            if (
+                a.get("source") in AI_PRIORITY_OFFICIAL_SOURCES
+                and a.get("ageDays") is not None
+                and a.get("ageDays") >= 0
+            )
+        ]
+        candidate_pool = reserve_ai_official_articles(
+            recent, limit, official_candidates=official_candidates
         )
-    else:
-        articles = diversify_articles_by_source(
-            articles,
-            limit,
-            preferred_cap=MAX_PER_SOURCE,
-        )
+    articles = filter_candidates_with_article_body(candidate_pool, limit, cancel_event)
+    # 公式枠を本文確認の先頭に置いた影響を表示順には残さず、通常の新着順へ戻す。
+    articles = sort_articles_newest_first(articles)
     if translate:
         articles = translate_titles(articles)
     return articles
@@ -1684,6 +2021,7 @@ HTML = r"""<!DOCTYPE html>
   .cand-meta a { color: #2563eb; text-decoration: none; }
   .cand-meta a:hover { text-decoration: underline; }
   .trust-badge { font-size: 11px; padding: 2px 7px; border-radius: 100px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+  .coverage-badge { font-size: 11px; padding: 2px 7px; border-radius: 100px; background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
   .article-link-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .article-link-btn { font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid #ddd; background: #fff; color: #1a1a1a; text-decoration: none; line-height: 1; }
   .article-link-btn:hover { background: #f5f5f5; text-decoration: none; }
@@ -1710,6 +2048,10 @@ HTML = r"""<!DOCTYPE html>
   .badge.lang { background: #eff6ff; color: #2563eb; }
   .article-meta { font-size: 12px; color: #aaa; margin-bottom: 6px; }
   .article-title { font-size: 15px; font-weight: 500; line-height: 1.4; margin-bottom: 12px; }
+  .angle-outline-box { background: #f5f8ff; border: 1px solid #dbe6ff; border-radius: 8px; padding: .7rem .9rem; margin-bottom: 12px; font-size: 12.5px; color: #334; }
+  .angle-outline-box .angle-line { font-weight: 500; margin-bottom: 4px; }
+  .angle-outline-box .outline-list { margin: 0; padding-left: 1.1rem; color: #556; }
+  .angle-outline-box .outline-list li { margin-bottom: 2px; }
   .article-title a { color: inherit; text-decoration: none; }
   .article-title a:hover { text-decoration: underline; }
   .tweet-label { font-size: 11px; font-weight: 600; color: #888; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
@@ -1812,6 +2154,7 @@ HTML = r"""<!DOCTYPE html>
     <div id="resultHeader"></div>
     <div class="article-meta" id="articleMeta"></div>
     <div class="article-title" id="articleTitle"></div>
+    <div class="angle-outline-box" id="angleOutlineBox" style="display:none"></div>
     <div class="tweet-label">投稿文（編集可）</div>
     <div class="tweet-box" id="tweetBox" contenteditable="true"></div>
     <div class="char-row">
@@ -1848,7 +2191,7 @@ const OPINION_STYLES=[
 let activeOpinionStyle='practical';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
-let candidates=[], selectedIdx=-1, postHistory=[], tags=[], visibleCount=INITIAL_VISIBLE_COUNT;
+let candidates=[], selectedIdx=-1, postHistory=[], visibleCount=INITIAL_VISIBLE_COUNT;
 let lastFetchInfo=null;
 let currentFetchRequestId=null;
 let currentFetchController=null;
@@ -1856,7 +2199,6 @@ let fetchCancelled=false;
 let lastArticle=null, lastArticleBody='';
 
 function el(id){return document.getElementById(id);}
-function getTags(){return tags.filter(t=>t.on).map(t=>t.t).join(' ');}
 
 function pillStyle(active){
   return active
@@ -1980,7 +2322,7 @@ async function fetchCandidatesWithRetry(category, lang, includeX, days, keyword,
       if(data.cancelled)throw new Error('取得をキャンセルしました');
       if(!r.ok||data.error)throw new Error(data.error||`HTTP ${r.status}`);
       if(data.articles&&data.articles.length){
-        lastFetchInfo={count:data.count||data.articles.length, todayCount:data.today_count??null, category:data.category, lang:data.lang, days:data.days, expandedDays:data.expanded_days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
+        lastFetchInfo={count:data.count||data.articles.length, todayCount:data.today_count??null, officialLatestCount:data.official_latest_count??0, category:data.category, lang:data.lang, days:data.days, expandedDays:data.expanded_days, includeX:data.include_x, usedFullFetch:data.used_full_fetch, keyword:data.keyword};
         console.log('[候補取得]', lastFetchInfo);
         return data.articles;
       }
@@ -2000,8 +2342,18 @@ async function callProxy(messages, jsonMode){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(jsonMode ? {messages, json_mode:true} : {messages})
   });
-  if(!r.ok){const t=await r.text();throw new Error(t);}
-  return r.json();
+  const raw=await r.text();
+  let data;
+  try{ data=JSON.parse(raw); }catch(e){ data={error:raw}; }
+  const contentType=(r.headers.get('content-type')||'').toLowerCase();
+  if(r.redirected && (r.url.includes('/login') || !contentType.includes('application/json'))){
+    window.location.href='/login';
+    throw new Error('ログインの有効期限が切れました。再ログインしてください');
+  }
+  if(!r.ok){
+    throw new Error(data.error||`APIエラー（${r.status}）`);
+  }
+  return data;
 }
 
 function xWeightedLen(text){
@@ -2059,49 +2411,60 @@ function renderCands(){
     const retry='';
     const kw=lastFetchInfo.keyword?` / 検索:「${lastFetchInfo.keyword}」`:'';
     const catLabel=lastFetchInfo.category||'全カテゴリ';
-    const todayNote=(isExpanded&&lastFetchInfo.todayCount!=null&&lastFetchInfo.todayCount<lastFetchInfo.count)
+    const officialNote=lastFetchInfo.officialLatestCount
+      ?` / 3社の公式最新${lastFetchInfo.officialLatestCount}件を含む`:'';
+    const todayNote=(lastFetchInfo.todayCount!=null&&lastFetchInfo.todayCount<lastFetchInfo.count)
       ?`（今日${lastFetchInfo.todayCount}件）`:'';
-    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得${todayNote} / ${catLabel} / ${mode} / ${period}${expanded}${retry}${kw}`;
+    el('candidateInfo').textContent=`${lastFetchInfo.count}件取得${todayNote} / ${catLabel} / ${mode} / ${period}${expanded}${officialNote}${retry}${kw}`;
   }else{
     el('candidateInfo').textContent='';
   }
   const OFFICIAL_TYPES=new Set(['official_blog','github_release','docs_update']);
   const officialFirst=el('officialFirst')&&el('officialFirst').checked;
-  let displayCandidates=[...candidates];
+  // origIdxは常にcandidates配列上の元のインデックス（selectCand/candidates[i]参照に使う）。
+  // 「公式優先」で表示順を並べ替えても、選択対象は表示位置ではなく元のインデックスで
+  // 追跡しないと、並べ替え後に別の記事が選択されてしまう。
+  let displayCandidates=candidates.map((a,origIdx)=>({a,origIdx}));
   if(officialFirst){
-    displayCandidates.sort((a,b)=>{
-      const aOff=OFFICIAL_TYPES.has(a.type)?0:1;
-      const bOff=OFFICIAL_TYPES.has(b.type)?0:1;
-      return aOff-bOff;
+    displayCandidates.sort((x,y)=>{
+      // 日付順を崩さず、同じ公開日時の候補だけ公式を優先する。
+      const timeDiff=(Number(y.a.sortTime)||0)-(Number(x.a.sortTime)||0);
+      if(timeDiff)return timeDiff;
+      const xOff=OFFICIAL_TYPES.has(x.a.type)?1:0;
+      const yOff=OFFICIAL_TYPES.has(y.a.type)?1:0;
+      return yOff-xOff;
     });
   }
-  const filtered=displayCandidates.map((a,i)=>[i,a]);
-  const visibleCandidates=filtered.slice(0, visibleCount);
-  if(!filtered.length){
+  const visibleCandidates=displayCandidates.slice(0, visibleCount);
+  if(!displayCandidates.length){
     el('candidatesList').innerHTML='';
   }else{
-    el('candidatesList').innerHTML=visibleCandidates.map(([i,a])=>{
-    const sel=selectedIdx===i;
+    el('candidatesList').innerHTML=visibleCandidates.map(({a,origIdx},pos)=>{
+    const sel=selectedIdx===origIdx;
     const title=escapeHtml(a.title);
     const summary=escapeHtml(a.summary);
     const source=escapeHtml(a.source);
     const published=escapeHtml(a.published);
     const typeLabel=escapeHtml(a.typeLabel||'RSSニュース');
+    const officialGroup=escapeHtml(a.officialGroup||'');
     const url=escapeHtml(a.url);
-    return `<div class="cand-card${sel?' selected':''}" onclick="selectCand(${i})">
-      <div class="cand-num">${i+1}</div>
+    const checkLabel=sel?'✓':'';
+    return `<div class="cand-card${sel?' selected':''}" onclick="selectCand(${origIdx})">
+      <div class="cand-num">${pos+1}</div>
       <div class="cand-body">
         <div class="cand-title">${title}</div>
         ${summary?`<div class="cand-summary">${summary}</div>`:''}
         <div class="cand-meta">
           <span>${source}</span><span>${published}</span>
+          ${a.isPriorityOfficialLatest?`<span class="trust-badge">${officialGroup} 公式最新</span>`:''}
           <span class="trust-badge">${typeLabel}・信頼度${a.trustScore||70}</span>
+          ${a.coverageCount>1?`<span class="coverage-badge">他${a.coverageCount-1}媒体でも報道</span>`:''}
         </div>
         ${a.url?`<div class="article-link-row">
           <a class="article-link-btn" href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">参照URLを開く</a>
         </div>`:''}
       </div>
-      <div class="cand-check">${sel?'✓':''}</div>
+      <div class="cand-check">${checkLabel}</div>
     </div>`;
     }).join('');
   }
@@ -2113,19 +2476,29 @@ function renderCands(){
   }else{
     opPanel.style.display='none';
   }
-  const remaining=Math.max(filtered.length-visibleCount,0);
+  const remaining=Math.max(displayCandidates.length-visibleCount,0);
   el('moreBtn').style.display=remaining>0?'block':'none';
   el('moreBtn').textContent=`もっと見る（残り${remaining}件）`;
 }
 
 function selectCand(i){
-  selectedIdx=i;
-  el('selectBtn').disabled=false;
-  // スティッキーバー更新
-  el('stickyBar').style.display='block';
-  el('stickyTitle').textContent=candidates[i]?.title||'';
-  document.body.classList.add('has-sticky');
+  selectedIdx=selectedIdx===i?-1:i;
+  updateStickyBar();
   renderCands();
+}
+
+function updateStickyBar(){
+  if(selectedIdx<0){
+    el('selectBtn').disabled=true;
+    el('stickyBar').style.display='none';
+    document.body.classList.remove('has-sticky');
+    return;
+  }
+  el('selectBtn').disabled=false;
+  el('stickyBar').style.display='block';
+  document.body.classList.add('has-sticky');
+  el('stickyTitle').textContent=candidates[selectedIdx]?.title||'';
+  el('selectBtn').textContent='✏️ 投稿文を生成';
 }
 
 async function translateCandidatesInBackground(){
@@ -2138,12 +2511,21 @@ async function translateCandidatesInBackground(){
       body:JSON.stringify({articles:candidates})
     });
     const data=await r.json();
+    if(data.warning){
+      console.warn('候補翻訳の一部に失敗:',data.warning);
+      showError('一部の記事を翻訳できませんでした。少し待ってから候補を再取得してください。');
+    }
     if(data.articles&&data.articles.length){
-      const selectedUrl=selectedIdx>=0?candidates[selectedIdx]?.url:null;
+      const selectedArticle=selectedIdx>=0?candidates[selectedIdx]:null;
       candidates=data.articles;
-      if(selectedUrl){
-        selectedIdx=candidates.findIndex(a=>a.url===selectedUrl);
-      }
+      selectedIdx=selectedArticle?candidates.findIndex(a=>
+        selectedArticle.url
+          ? a.url===selectedArticle.url
+          : a.title===selectedArticle.title&&a.source===selectedArticle.source
+      ):-1;
+      // 翻訳後の候補置き換えで選択記事が見つからなかった場合(selectedIdx=-1)に、
+      // 古いタイトルのままのスティッキーバーが残らないよう表示も更新する
+      updateStickyBar();
       renderCands();
     }
   }catch(e){
@@ -2225,56 +2607,120 @@ el('generateBtn').onclick=async()=>{
 
 el('selectBtn').onclick=async()=>{
   if(selectedIdx<0)return;
-  const art=candidates[selectedIdx];
-  const shareUrl=shareArticleUrl(art);
+  const article=candidates[selectedIdx];
+  if(!article)return;
+  const shareUrl=shareArticleUrl(article);
+  const genBtnLabel='✏️ 投稿文を生成';
   el('selectBtn').disabled=true;
   el('selectBtn').innerHTML='<div class="spinner"></div>生成中...';
   setStatus(true,'記事本文を取得中...');
-  const today=new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
   try{
-    // 記事本文を取得（失敗してもRSS要約にフォールバック）
-    let articleBody = '';
-    if(art.url && art.type !== 'official_x'){
+    // 記事本文を取得（失敗してもRSS概要にフォールバック）
+    let articleBody='';
+    if(article.url && article.type !== 'official_x'){
       try{
-        const br = await fetch(`/api/fetch_article?url=${encodeURIComponent(art.url)}`);
-        const bd = await br.json();
-        if(bd.body && bd.body.length > 100) articleBody = bd.body;
-      }catch(e){ console.warn('記事取得失敗', e); }
+        const br=await fetch(`/api/fetch_article?url=${encodeURIComponent(article.url)}`);
+        const bd=await br.json();
+        if(bd.body && bd.body.length>100)articleBody=bd.body;
+      }catch(e){ console.warn('記事取得失敗',e); }
     }
-    const contextText = articleBody
+    const contextText=articleBody
       ? `記事本文（抜粋）:\n${articleBody}`
-      : `RSS概要: ${art.summary||'概要なし'}`;
+      : `RSS概要: ${article.summary||'概要なし'}`;
 
+    // 他媒体での既出度合い（⑥類似確認）: 候補取得時に記録したcoverageCountを使う
+    const coverageCount=article.coverageCount||1;
+    const coverageNote=coverageCount>1
+      ? `\n\n【他媒体での報道状況】\n「${article.title}」は他${coverageCount-1}媒体でも同様のニュースが確認できた（既出度が高い話題）。\n単純な事実紹介だけに終わらない独自性のある切り口を選ぶこと。`
+      : '';
+
+    // 最初に根拠となる事実を構造化する。以後の生成ではこの要点を制約として使い、
+    // タイトルからの推測や、数値・固有名詞の取り違えを抑える。
+    setStatus(true,'記事の事実と構成を整理中...');
+    let angle='記事の具体的な変化と、それが利用者・実務に与える影響';
+    let outline=[];
+    let verifiedFacts=[];
+    let termExplanations=[];
+    try{
+      const angleOutlineData=await callProxy([{role:'user',content:`以下の記事を読み、SNS投稿を書く前の事実整理と構成設計をしてください。
+
+${contextText}${coverageNote}
+
+【事実整理のルール】
+- factsには本文またはRSS概要で明示されている事実だけを、重要な順に最大6件入れる
+- 各factのevidenceには、その根拠となる原文中の短い連続した表現を一字も変えずに入れる
+- 数字・日付・製品名・企業名・機能名・比較対象は原文どおり正確に保つ
+- 記事にない因果関係、効果、将来予測、評価を補わない
+- RSS概要しかない場合は、確認できる件数が少なくてもよい。推測で埋めない
+- termsには、一般読者には難しい用語と、記事の文脈を変えない平易な説明を最大4件入れる
+
+【切り口のルール】
+- 単なる事実の要約ではなく、読者の興味を引く視点・観点を1つ選ぶ
+- 記事に実際に書かれている情報に基づくこと（推測や記事にない一般論で切り口を作らない）
+- 切り口は日本語1文（30〜60文字程度）
+
+【構成のルール】
+- 決定した切り口をもとに、投稿がどう展開するかを表す2〜4個の見出し（各10〜20文字程度）を考える
+
+出力はJSON形式のみで回答する。説明や前置き、Markdownのコードブロックは一切不要。
+形式: {"facts": [{"claim": "確認できる事実", "evidence": "原文からそのまま抜き出した根拠表現"}], "terms": [{"term": "用語", "plain": "平易な説明"}], "angle": "切り口の文", "outline": ["見出し1", "見出し2", ...]}`}], true);
+      const parsed=JSON.parse(angleOutlineData.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,''));
+      const generatedAngle=(parsed.angle||'').trim();
+      if(generatedAngle)angle=generatedAngle;
+      if(Array.isArray(parsed.outline))outline=parsed.outline;
+      if(Array.isArray(parsed.facts)){
+        verifiedFacts=parsed.facts.filter(f=>
+          f&&typeof f.claim==='string'&&f.claim.trim()&&
+          typeof f.evidence==='string'&&f.evidence.trim().length>=4&&
+          contextText.includes(f.evidence.trim())
+        ).slice(0,6);
+      }
+      if(Array.isArray(parsed.terms))termExplanations=parsed.terms.filter(t=>t&&typeof t.term==='string'&&typeof t.plain==='string').slice(0,4);
+    }catch(e){
+      console.warn('事実整理・構成の生成に失敗。記事本文を直接使って続行します。',e);
+    }
+    const factInstruction=verifiedFacts.length
+      ? `\n\n【原文の根拠を確認できた要点】\n${verifiedFacts.map((f,i)=>`${i+1}. ${f.claim}（根拠:「${f.evidence.trim()}」）`).join('\n')}`
+      : '';
+    const termInstruction=termExplanations.length
+      ? `\n\n【用語の平易な説明】\n${termExplanations.map(t=>`- ${t.term}: ${t.plain}`).join('\n')}`
+      : '';
+    const angleOutlineInstruction=`\n\n【決定済みの切り口・構成（必ず反映する）】\n切り口: ${angle}${outline.length?`\n構成:\n${outline.map((o,i)=>`${i+1}. ${o}`).join('\n')}`:''}`;
     setStatus(true,'投稿文を生成中...');
     // XはURLを常に23文字としてカウントする。本文はURL込みでPOST_CHAR_LIMIT以内に収める
     const includeOpinion=el('includeOpinion').checked;
     const opinionStyleMap={
       impression: articleBody
         ? `記事本文を読んだうえで、特に印象的な事実・数字・技術名を1つ具体的に引用し「〜が面白い」「〜は要注目」など筆者の感想として1〜2文添える。抽象的な表現（「興味深い」「注目です」だけ）は避ける。`
-        : '記事タイトルから読み取れる特徴的な点に触れ、「〜が面白い」「〜は要注目」など1〜2文添える。',
+        : 'RSS概要で確認できる特徴的な点にだけ触れ、断定を広げず1〜2文の感想を添える。',
       question: articleBody
         ? `記事本文の具体的な内容（機能名・数値・変化）を踏まえ、「〜を使ってみた方いますか？」「あなたの現場では〜はどう変わりそう？」など読者が答えやすい具体的な問いかけを1〜2文添える。`
         : '記事テーマに関連した読者への問いかけを1〜2文添える（「皆さんはどう思いますか？」など）。',
       practical: articleBody
         ? `記事本文から具体的な機能・変更点・数値を1〜2個取り上げ、それが実際の業務・開発現場でどう活きるか（何ができるようになるか、何が楽になるか、導入時に注意すべき点は何か）を2〜3文で具体的に書く。「〜があれば現場で〇〇できそう」で終わらせず、なぜそう言えるかまで踏み込む。`
-        : '実務・エンジニア目線で「現場ではこう使えそう」「ここが実用上のポイント」など、理由も添えて2〜3文書く。',
+        : 'RSS概要で確認できる範囲だけを使い、実務上のポイントを断定せず簡潔に1〜2文書く。',
       concern: articleBody
         ? `記事本文の内容に基づき、「〜という点はまだ課題」「〜が普及するには〇〇が必要では」など根拠のある懸念・考察を1〜2文添える。感情的・否定的にならず建設的なトーンで。`
-        : '「一方でこんなリスクも」「まだ課題はあるが」など懸念や考察を1〜2文添える。',
+        : 'RSS概要に課題や制約の記載がある場合だけ、それを根拠に建設的な考察を1〜2文添える。記載がなければ新しい懸念を作らない。',
     };
     const opinionInstruction=includeOpinion
-      ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 「実務目線では、」「現場で見ると、」のような一言を起点に、下記スタイルの視点を明確に区切って書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
+      ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 前半の内容を踏まえて視点を切り替え、下記スタイルの内容を書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かない。文章の内容・トーンの変化だけで視点の転換を示すこと\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
+    const targetLenText='日本語350〜500文字程度';
+    const shortMinChars=150;
     // 本文のみ生成（ハッシュタグ・URLは後付け）
-    const data=await callProxy([{role:'user',content:`以下の記事についてX投稿の本文を日本語で作成してください。
+    const mainPrompt=`以下の記事についてX投稿の本文を日本語で作成してください。
 
 【記事情報】
-タイトル: ${art.title}
-ソース: ${art.source}（${art.typeLabel||'RSSニュース'}）
+タイトル: ${article.title}
+ソース: ${article.source}（${article.typeLabel||'RSSニュース'}）
 ${contextText}
+${factInstruction}${termInstruction}
 
 【最重要: 記事内容を具体的・正確に反映する】
 - 上記の記事本文（またはRSS概要）に実際に書かれている情報だけを根拠にする。タイトルからの推測や一般論で埋めない
-- 記事中の具体的な事実を最低2〜3個（固有名詞・数値・機能名・日付・引用など）を選び、必ず本文に盛り込む
+- 「記事から確認済みの要点」がある場合はそこから重要なものを優先して使い、元の意味を変えない
+- 記事中の具体的な事実を2〜3個（固有名詞・数値・機能名・日付など）選ぶ。ただしRSS概要に十分な情報がなければ件数を無理に満たさない
+- 数字・日付・固有名詞は書き換えない。根拠のない効果・因果関係・将来予測を事実として断定しない
 - 専門用語・略語が出てきたら、一般読者にも伝わるよう簡潔に噛み砕いて説明する（例: 「RAG（生成AIが外部情報を参照して回答する仕組み）」のように）
 - 「〜が発表された」「〜が話題」のような曖昧な言い回しだけで終わらせず、「何が」「どう変わった/どうすごいのか」を具体的に書く
 - 記事本文が取得できずRSS概要のみの場合は、憶測で詳細を作り込まず、分かる範囲を正確に書く
@@ -2285,36 +2731,44 @@ ${contextText}
 - 公式X: 断定しすぎず「公式Xで確認」くらいの表現
 - RSSニュース/Blog: 背景・具体的な数値や固有名詞を交えて2〜3文で紹介${opinionInstruction}
 
+【文体（読みやすさ・惹きつけ方）】
+- 書き出しの1文で読者の目を引く（意外な数値・変化・対比・問いかけなど）。「〜が発表されました」のような単調な書き出しは避ける
+- 一文は40字前後を目安に区切り、長すぎる一文をだらだら続けない。文の長さや語尾に変化をつけ、単調なリズムにしない
+- 「〜である」「〜となっている」のような硬い報告文調ではなく、語りかけるような自然な日本語にする
+- 難しい概念は必要に応じて身近なたとえで説明する。ただし、たとえを記事中の事実のように書かない
+- 1〜2文ごとに改行を入れ、スマホ画面でも読みやすい見た目にする
+
 【文字数（X Premiumアカウントのため長文投稿可）】
-- 日本語350〜500文字程度を目安にする
+- ${targetLenText}を目安にする
 - 文字数を埋めるための水増しはせず、記事本文にある具体的な情報で自然に厚みを持たせる
-- 短すぎる投稿（150文字未満）は禁止
-- 改行を適度に使い、読みやすい段落分けにする
+- 短すぎる投稿（${shortMinChars}文字未満）は禁止
 - 本文のみ回答
 
 【その他の制約】
 - 「速報」という言葉は絶対に使わない
-- ハッシュタグ・URLは不要`}]);
+- ハッシュタグ・URLは不要${angleOutlineInstruction}`;
+    const data=await callProxy([{role:'user',content:mainPrompt}]);
 
     // 本文 + URL を組み立て（ハッシュタグなし）
     const calcLen=(t)=>{const u=t.match(/https?:\/\/[^\s]+/g)||[];return xWeightedLen(t.replace(/https?:\/\/[^\s]+/g,''))+u.length*23;};
     let body = data.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-    const urlStr  = shareUrl  ? '\n'+shareUrl  : '';
+    const urls=shareUrl?[shareUrl]:[];
+    const urlStr=shareUrl?'\n'+shareUrl:'';
     let tweet = body + urlStr;
 
     // 短すぎる場合は、上限に収まる範囲で本文だけを一度だけ膨らませる
+    const expandThreshold=600;
     const bodyLen = calcLen(body);
-    if(bodyLen < 600){
+    if(bodyLen < expandThreshold){
       setStatus(true,'投稿文を少し詳しく調整中...');
       try{
-        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事本文に実際に書かれている具体的な要点・背景・数値や固有名詞を補い、日本語350〜500文字程度の3〜5文にしてください。
-${includeOpinion?`前半で記事内容を具体的に説明し、後半は「実務目線では、」のような一言を起点に${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}という視点を書く、2部構成にすること。`:''}
+        const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事内容に実際に書かれている具体的な要点・背景・数値や固有名詞を補い、${targetLenText}の3〜5文にしてください。
+${includeOpinion?`前半で記事内容を具体的に説明し、後半は視点を切り替えて${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}という内容を書く、2部構成にすること。「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かないこと。`:''}
 記事に無い情報を推測で足さないこと。専門用語は簡潔に噛み砕いて説明すること。
+書き出しの1文で読者の目を引くこと。一文は40字前後で区切り、語りかけるような自然な日本語にすること（硬い報告文調は避ける）。1〜2文ごとに改行を入れること。
 URLとハッシュタグは不要。本文のみ回答。
 「速報」という言葉は使わない。
 
-記事タイトル: ${art.title}
-ソース: ${art.source}
 ${contextText}
 
 現在の本文:
@@ -2327,28 +2781,60 @@ ${body}`}]);
       }catch(e){ console.warn('本文拡張失敗',e); }
     }
 
-    // Step2: それでもオーバーなら Claude で本文を自動短縮
+    // 最終稿を記事と突き合わせて校正する。新しい内容を足す工程ではなく、
+    // 根拠のない断定・数字の誤り・分かりにくい表現を除去するためのチェック。
+    setStatus(true,'内容の正確さと読みやすさを確認中...');
+    try{
+      const reviewed=await callProxy([{role:'user',content:`以下のX投稿本文を、記事の根拠と一文ずつ照合して最終校正してください。
+
+【校正ルール】
+- 記事本文またはRSS概要で確認できない情報、因果関係、効果、将来予測は削除するか、感想・可能性だと明確にする
+- 数字・日付・企業名・製品名・機能名を記事と照合し、違っていれば直す
+- 記事にない具体例を新しく追加しない
+- 正確さを保ったまま、専門用語を短く噛み砕き、一文を40字前後に整える
+- 主語と「何が変わったか」を明確にし、重複や抽象的な言い回しを削る
+- 1〜2文ごとに改行し、自然で読みやすい日本語にする
+- 元の切り口と2部構成は保つ。ただし根拠のない部分は構成より正確さを優先して削る
+- 「速報」、ハッシュタグ、URL、前置き、校正コメントは不要。完成した本文だけを返す
+- 新しい事実を足さず、現在の本文と記事情報の範囲だけで直す
+
+【記事情報】
+タイトル: ${article.title}
+${contextText}${factInstruction}${termInstruction}
+
+【現在の本文】
+      ${body}`}]);
+      const reviewedBody=reviewed.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
+      if(reviewedBody && reviewedBody.length>=shortMinChars && calcLen(reviewedBody+urlStr)<=POST_CHAR_LIMIT){
+        body=reviewedBody;
+        tweet=body+urlStr;
+      }
+    }catch(e){ console.warn('最終校正に失敗。校正前の本文を使用します。',e); }
+
+    // それでもオーバーならGeminiで本文を自動短縮
     if(calcLen(tweet)>POST_CHAR_LIMIT){
       setStatus(true,'文字数オーバー。本文を自動短縮中...');
       try{
         const over=calcLen(tweet);
         const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLは変えずに本文だけを短くしてください。
 文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計${POST_CHAR_LIMIT}以内。
-URL: ${shareUrl}
+URL: ${urls.join(', ')||'なし'}
 本文のみ回答してください。\n\n${body}`}]);
         const newBody=shortened.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
         tweet = newBody + urlStr;
       }catch(e){ console.warn('自動短縮失敗',e); }
     }
-    lastArticle=art;
+    lastArticle=article;
     lastArticleBody=articleBody;
     el('imgPromptBox').style.display='none';
     el('imgPromptBox').textContent='';
     el('imgPromptCopyBtn').style.display='none';
     el('resultHeader').innerHTML=`
       <span class="badge lang">${activeLang==='en'?'🌐 海外':'🇯🇵 国内'}</span>`;
-    el('articleMeta').textContent=`${art.source}　${art.published}　${art.typeLabel||'RSSニュース'}・信頼度${art.trustScore||70}`;
-    el('articleTitle').innerHTML=art.url?`<a href="${escapeHtml(art.url)}" target="_blank">${escapeHtml(art.title)}</a>`:escapeHtml(art.title);
+    el('articleMeta').textContent=`${article.source}　${article.published}　${article.typeLabel||'RSSニュース'}・信頼度${article.trustScore||70}`;
+    el('articleTitle').innerHTML=article.url?`<a href="${escapeHtml(article.url)}" target="_blank">${escapeHtml(article.title)}</a>`:escapeHtml(article.title);
+    el('angleOutlineBox').innerHTML=`<div class="angle-line">🎯 ${escapeHtml(angle)}</div>${outline.length?`<ul class="outline-list">${outline.map(o=>`<li>${escapeHtml(o)}</li>`).join('')}</ul>`:''}`;
+    el('angleOutlineBox').style.display='block';
     el('tweetBox').innerText=tweet;
     updateChar();
     setStatus(false);
@@ -2361,12 +2847,12 @@ URL: ${shareUrl}
     el('resultCard').style.display='block';
     el('xBtn').onclick=()=>{
       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(el('tweetBox').innerText)}`,'_blank');
-      markPosted(art,el('tweetBox').innerText);
+      markPosted(article,el('tweetBox').innerText);
     };
   }catch(e){
     setStatus(false);
     el('selectBtn').disabled=false;
-    el('selectBtn').textContent='✏️ 投稿文を生成';
+    el('selectBtn').textContent=genBtnLabel;
     showError('生成に失敗: '+e.message);
   }
 };
@@ -2387,10 +2873,7 @@ el('backBtn').onclick=()=>{
   el('resultCard').style.display='none';
   el('candidatesSection').style.display='block';
   el('opinionPanel').style.display='block';
-  if(selectedIdx>=0){
-    el('stickyBar').style.display='block';
-    document.body.classList.add('has-sticky');
-  }
+  updateStickyBar();
 };
 
 el('imgPromptBtn').onclick=async()=>{
@@ -2398,11 +2881,15 @@ el('imgPromptBtn').onclick=async()=>{
   el('imgPromptBtn').disabled=true;
   el('imgPromptBtn').textContent='生成中...';
   try{
+    // 投稿文生成と同じくfetch_article_body側で既に上限（6,000文字）を掛けているため、
+    // ここでは追加でスライスしない。以前は先頭2,500文字に切り詰めていたため、
+    // 記事後半にある「変化・結論」を見落とし、typicalなBefore/After構成しか
+    // 作れないことがあった。
     const source=lastArticleBody || lastArticle.summary || lastArticle.title;
     const data=await callProxy([{role:'user',content:`以下のIT記事を、日本語の解説インフォグラフィック画像にするための構成要素を考えてください。SNSでよく見る「わかりやすい図解」投稿のような、見出し＋複数ステップ＋マスコットキャラクターのイラストを想定します。
 
 記事タイトル: ${lastArticle.title}
-内容: ${source.slice(0,2500)}
+内容: ${source}
 
 【最重要: 記事内容を正確に反映する】
 - title_ja・sectionsはすべて上記の記事本文（またはRSS概要）に実際に書かれている内容を根拠にする。タイトルからの推測や、記事に書かれていない一般的なAI/IT論で埋めない
@@ -2451,23 +2938,45 @@ el('copyBtn').onclick=async()=>{
   }catch{showError('コピーに失敗');}
 };
 
-function markPosted(art,tweet){
-  const now=new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
-  postHistory.unshift({title:art.title,tweet,time:now});
-  if(postHistory.length>9)postHistory.pop();
-  el('historySection').style.display='block';
+const POST_HISTORY_KEY='it_post_history_v1';
+function todayKeyJST(){
+  // サーバー側の「今日」判定と同じくJSTの日付で揃える
+  return new Date(Date.now()+9*60*60*1000).toISOString().slice(0,10);
+}
+function renderHistoryList(){
+  el('historySection').style.display=postHistory.length?'block':'none';
   el('historyList').innerHTML=postHistory.map((h,i)=>`
     <div class="history-item" onclick="loadHistory(${i})">
       <span class="hi-title">${h.title}</span>
       <span class="hi-time">${h.time}</span>
     </div>`).join('');
 }
+function markPosted(art,tweet){
+  const now=new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
+  postHistory.unshift({title:art.title,tweet,time:now});
+  if(postHistory.length>9)postHistory.pop();
+  renderHistoryList();
+  try{
+    localStorage.setItem(POST_HISTORY_KEY,JSON.stringify({date:todayKeyJST(),items:postHistory}));
+  }catch(e){ console.warn('投稿履歴の保存に失敗',e); }
+}
+function loadPostHistory(){
+  // 「今日の投稿履歴」というラベルの通り、日付（JST）が変わっていたら破棄する
+  try{
+    const raw=localStorage.getItem(POST_HISTORY_KEY);
+    if(!raw)return;
+    const data=JSON.parse(raw);
+    if(data.date!==todayKeyJST()||!Array.isArray(data.items))return;
+    postHistory=data.items;
+    renderHistoryList();
+  }catch(e){ console.warn('投稿履歴の読み込みに失敗',e); }
+}
 function loadHistory(i){
   const h=postHistory[i];el('tweetBox').innerText=h.tweet;updateChar();
   el('resultCard').style.display='block';
 }
 
-renderCats();renderLangs();
+renderCats();renderLangs();loadPostHistory();
 </script>
 </body>
 </html>
@@ -2602,7 +3111,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {"error": "url is required"})
                 return
             print(f"[記事取得] {url}", flush=True)
-            body_text = fetch_article_body(url, char_limit=3000)
+            body_text = fetch_article_body(url)
             self.send_json(200, {"body": body_text})
         elif self.path.startswith("/api/rss"):
             from urllib.parse import urlparse, parse_qs
@@ -2640,7 +3149,6 @@ class Handler(BaseHTTPRequestHandler):
                     articles = _load_articles(days)
                 except Exception as first_error:
                     print(f"[候補取得] 初回失敗、再試行します: {first_error}", flush=True)
-                    _RSS_FAIL_CACHE.clear()
                     import time as _time
                     _time.sleep(RSS_EMPTY_RETRY_DELAY)
                     ensure_not_cancelled(cancel_event)
@@ -2648,9 +3156,11 @@ class Handler(BaseHTTPRequestHandler):
                 used_full_fetch = False
                 expanded_days = days
                 auto_expand_max_days = 3 if lang == "en" else 7
+                # 同一リクエスト内の再取得では失敗キャッシュをクリアしない。
+                # 403やコネクション切断など確実に失敗するフィードを毎回律儀に
+                # 再試行すると、その分だけ後続の取得予算を浪費してしまうため。
                 if len(articles) < 20:
                     print(f"[候補取得] {len(articles)}件のため追加取得します", flush=True)
-                    _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
                 # 「今日」は当日の記事だけを返す。件数不足でも過去記事への
@@ -2658,13 +3168,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not keyword and category and days > 0 and len(articles) < 20 and days < 3:
                     expanded_days = 3
                     print(f"[候補取得] {len(articles)}件のため3日以内で補完します", flush=True)
-                    _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(expanded_days, full=True)
                 if not keyword and category and days > 0 and len(articles) < 20 and expanded_days < auto_expand_max_days:
                     expanded_days = auto_expand_max_days
                     print(f"[候補取得] {len(articles)}件のため{auto_expand_max_days}日以内で補完します", flush=True)
-                    _RSS_FAIL_CACHE.clear()
                     used_full_fetch = True
                     articles = _load_articles(expanded_days, full=True)
                 if not articles:
@@ -2676,21 +3184,32 @@ class Handler(BaseHTTPRequestHandler):
                     used_full_fetch = True
                     articles = _load_articles(days, full=True)
                 # 防御的に最終レスポンスでも「今日」の条件を適用する。
-                # 補完・キャッシュなど将来の取得経路が増えても、前日以前の記事を返さない。
+                # ただしAIカテゴリの3社公式最新は、最新動向を把握できるよう期間外でも残す。
                 if days == 0:
                     before_today_filter = len(articles)
-                    articles = [a for a in articles if a.get("ageDays") == 0]
+                    articles = [
+                        a for a in articles
+                        if a.get("ageDays") == 0 or a.get("isPriorityOfficialLatest")
+                    ]
                     if len(articles) != before_today_filter:
                         print(f"[候補取得] 今日以外の記事を{before_today_filter - len(articles)}件除外", flush=True)
                 today_count = sum(
                     1 for a in articles
                     if a.get("type") == "official_x" or a.get("ageDays") == 0
                 )
-                print(f"[候補取得] 取得件数={len(articles)} うち今日={today_count}", flush=True)
+                official_latest_count = sum(
+                    1 for a in articles if a.get("isPriorityOfficialLatest")
+                )
+                print(
+                    f"[候補取得] 取得件数={len(articles)} うち今日={today_count} "
+                    f"3社公式最新={official_latest_count}",
+                    flush=True,
+                )
                 self.send_json(200, {
                     "articles": articles,
                     "count": len(articles),
                     "today_count": today_count,
+                    "official_latest_count": official_latest_count,
                     "category": category,
                     "lang": lang,
                     "days": days,
@@ -2739,39 +3258,90 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(articles, list):
                 self.send_json(400, {"error": "articles must be a list"})
                 return
+            needing_translation_before = sum(1 for a in articles if needs_translation(a))
             try:
-                translated = translate_titles(articles[:20])
-                self.send_json(200, {"articles": translated})
+                if needing_translation_before > 0 and not API_KEY:
+                    self.send_json(200, {
+                        "articles": articles,
+                        "warning": "GEMINI_API_KEY が設定されていないため翻訳できません",
+                    })
+                    return
+                translated = translate_titles(articles)
+                still_untranslated = sum(1 for a in translated if needs_translation(a))
+                if needing_translation_before > 0 and still_untranslated >= needing_translation_before:
+                    # バッチ翻訳がすべて失敗した場合、call_gemini側は例外を握りつぶすため
+                    # ここまで来ても気づかれない。明示的に警告を返す。
+                    self.send_json(200, {
+                        "articles": translated,
+                        "warning": "翻訳に失敗しました（サーバーログの[翻訳]バッチ失敗を確認してください）",
+                    })
+                else:
+                    self.send_json(200, {"articles": translated})
             except Exception as e:
                 print(f"[ERROR /api/translate_candidates] {e}", flush=True)
-                self.send_json(200, {"articles": articles[:20], "warning": str(e)})
+                self.send_json(200, {"articles": articles, "warning": str(e)})
             return
 
         messages = payload.get("messages", [])
 
         if not API_KEY:
-            self.send_json(500, {"error": "ANTHROPIC_API_KEY が設定されていません"})
+            self.send_json(500, {"error": "GEMINI_API_KEY が設定されていません"})
             return
 
         prompt_text = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
         json_mode = bool(payload.get("json_mode"))
         try:
-            text = call_claude(prompt_text, max_tokens=2000, json_mode=json_mode)
+            text = call_gemini(prompt_text, max_tokens=2000, json_mode=json_mode)
             self.send_json(200, {"text": text})
         except Exception as e:
             print(f"[ERROR] {e}", flush=True)
             self.send_json(500, {"error": str(e)})
 
 
+DEFAULT_WARMUP_CATEGORY = "AI・機械学習"
+
+def warm_up_default_category():
+    """起動直後（Renderのスリープ復帰時など）の最初の検索が、フィードが
+    軒並み未キャッシュのために遅く・不安定（早期終了で母集団が小さくなる）に
+    ならないよう、デフォルトカテゴリのRSSキャッシュを事前に温めておく。
+    article_typeはget_articles()が実際に使う値と揃える必要がある
+    （_RSS_CACHEはfeed_url単位のキーでarticle_typeを区別しないため、
+    ここで誤った型を渡すとキャッシュ経由で本番の取得結果まで誤分類される）。
+    """
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        tasks = (
+            [(f, None) for f in RSS_FEEDS.get(DEFAULT_WARMUP_CATEGORY, [])]
+            + [(f, "github_release") for f in GITHUB_RELEASE_FEEDS.get(DEFAULT_WARMUP_CATEGORY, [])]
+            + [(f, "docs_update") for f in DOCS_UPDATE_FEEDS.get(DEFAULT_WARMUP_CATEGORY, [])]
+        )
+        with ThreadPoolExecutor(max_workers=max(10, len(tasks))) as executor:
+            list(executor.map(
+                lambda t: fetch_configured_source(
+                    t[0], limit=RSS_PER_FEED_LIMIT, article_type=t[1], timeout=RSS_FETCH_TIMEOUT
+                ),
+                tasks,
+            ))
+        print(f"[起動時ウォームアップ] {DEFAULT_WARMUP_CATEGORY}のフィード{len(tasks)}件を事前取得しました", flush=True)
+    except Exception as e:
+        print(f"[起動時ウォームアップ] 失敗: {e}", flush=True)
+
 def main():
     if not API_KEY:
-        print("⚠️  ANTHROPIC_API_KEY が設定されていません")
-        print("   export ANTHROPIC_API_KEY=sk-ant-... を実行してから再起動してください\n")
+        print("⚠️  GEMINI_API_KEY が設定されていません")
+        print("   export GEMINI_API_KEY=... を実行してから再起動してください\n")
+
+    if BASIC_USER and BASIC_PASS and not os.environ.get("COOKIE_SECRET"):
+        print("⚠️  COOKIE_SECRET が未設定のため、ログインパスワード(BASIC_PASS)を")
+        print("   Cookie署名鍵として代用しています。ログイン用パスワードとは")
+        print("   別の値を COOKIE_SECRET に設定することを推奨します。\n")
+
+    threading.Thread(target=warm_up_default_category, daemon=True).start()
 
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"✅ サーバー起動: {url}")
-    print(f"   モデル: {CLAUDE_MODEL}（複数ソース版・低コスト）")
+    print(f"   モデル: {GEMINI_MODEL}（複数ソース版・精度重視）")
     print("   Ctrl+C で終了\n")
 
     if os.environ.get("PORT") is None:  # ローカルのみブラウザ自動起動

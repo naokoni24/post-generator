@@ -1,6 +1,6 @@
 # IT記事投稿ジェネレーター仕様
 
-更新日: 2026-06-20
+更新日: 2026-07-26
 リポジトリ: `https://github.com/naokoni24/post-generator`
 ブランチ: `main`
 対象ファイル: `it_post_generator_rss.py`
@@ -32,15 +32,16 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 - デフォルトURL: `http://localhost:8765`
 - 外部ライブラリ: なし
 - 文章生成 / 翻訳API: Google Gemini API
-- 使用モデル: `gemini-2.5-flash-lite`（`GEMINI_MODEL`で変更可）
+- 投稿文生成モデル: `gemini-2.5-flash-lite`（`GEMINI_MODEL`で変更可）
+- 候補翻訳モデル: `gemini-2.5-flash-lite`（`GEMINI_TRANSLATION_MODEL`で変更可）
 
 ## 環境変数
 
 | 変数 | 必須 | 内容 |
 | --- | --- | --- |
 | `GEMINI_API_KEY` | 投稿生成・翻訳には必須 | Google AI Studio / Gemini APIキー |
-| `GEMINI_MODEL` | 任意 | 使用モデル。未指定時は `gemini-2.5-flash-lite` |
-| `GEMINI_TRANSLATION_MODEL` | 任意 | 候補翻訳専用モデル。未指定時は品質優先で `gemini-2.5-flash` |
+| `GEMINI_MODEL` | 任意 | 投稿文・画像プロンプト生成モデル。未指定時は低コストな `gemini-2.5-flash-lite` |
+| `GEMINI_TRANSLATION_MODEL` | 任意 | 候補翻訳専用モデル。未指定時は `gemini-2.5-flash-lite` |
 | `PORT` | 任意 | Webサーバーのポート。未指定時は `8765` |
 | `BASIC_USER` | 任意 | ログイン用ユーザー名 |
 | `BASIC_PASS` | 任意 | ログイン用パスワード |
@@ -231,7 +232,7 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 | カテゴリ | フィード |
 | --- | --- |
-| AI・機械学習 | OpenAI News / Docs、Google Developers Blog |
+| AI・機械学習 | OpenAI Product Release Notes、Claude Help Center Release Notes（HTML）、Claude Platform Release Notes |
 | クラウド・AWS | AWS What's New、Cloudflare Blog、Google Cloud Release Notes |
 | セキュリティ | Cloudflare Security Blog |
 | 開発 | GitHub Changelog、Vercel Changelog、Chrome Developers Blog |
@@ -239,6 +240,14 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 | 便利ツール・Tips | GitHub Changelog、Chrome Developers Blog、Google Workspace Updates |
 | ガジェット・ハードウェア | Apple Developer Releases |
 | ビジネス・DX | （現在未設定） |
+
+AI公式製品更新の取得方法:
+
+- OpenAI Product Release Notes: 公式RSS `https://openai.com/products/release-notes/rss.xml`
+- Claude Help Center Release Notes: 公式ページのHTMLから日付・太字見出し・概要を更新単位で抽出
+- Claude Platform Release Notes: 公式RSS `https://platform.claude.com/docs/en/release-notes/feed.xml`
+
+3ソースはいずれも`docs_update`（信頼度95）として扱い、OpenAI / Anthropicの公式枠候補にも含めます。
 
 ### 公式X
 
@@ -271,9 +280,9 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 ## 種別ごとの取得上限
 
-現在はソース種別ごとの厳密な上限（旧type_caps）は設けていません。候補選定の簡素化リファクタで撤廃されました。
+現在はソース種別ごとの厳密な上限（旧type_caps）は設けていません。候補選定の簡素化リファクタで撤廃されました。ただしAI・機械学習では国内・海外どちらの取得先でも、選択期間に関係なくOpenAI・Anthropic・Google/Geminiの最新公式記事を最低1件ずつ最終20件に確保します。
 
-代わりに最終選定の並び順で、公式系（公式Blog / GitHub Releases / Docs更新 / 公式X）を優先タイとして扱い、タイ内は新しい順に並べる緩やかな優先度制御を行います（公式系が独占せず、かつ更新頻度の高いRSSニュースに埋もれないバランス）。
+それ以外の候補は種別を問わず新しい順に選び、公開日時が同じ場合だけ公式系と信頼度をタイブレークに使います。
 
 ## 取得先モード
 
@@ -336,16 +345,17 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 キーワードのみでカテゴリを選ばない場合:
 
 - 全カテゴリのフィードを重複除外して取得
-- 国内モードなら国内ソースのみ
+- 国内モードなら原則として国内ソースのみ（AI・機械学習の重要3社公式最新だけは例外）
 - 海外モードなら海外ソースのみ
 - GitHub Releases / Docs更新も全カテゴリから取得
 - 候補プールを最大160件まで翻訳してからキーワード一致判定
 
 ## 並び順
 
-最終候補は「公式系優先タイ→新しい順」で表示します（2026-07-10改訂でソース・種別ごとの上限を撤廃したシンプルな方式に変更後、2026-07-19に公式系の優先タイを追加）。
+最終候補は新しい順で表示します。AI・機械学習では国内・海外のどちらでも、OpenAI・Anthropic・Google/Geminiの最新公式候補を期間外も含めて各1件、本文確認用プール内で先に確保してから、表示時には新しい順へ戻します。
 
-- 公式系（公式Blog / GitHub Releases / Docs更新 / 公式X）を優先タイとして先頭グループにし、タイ内は新しい順。残りのRSSニュースも新しい順（更新頻度の低い公式ソースがRSSニュースに埋もれるのを防ぐため）
+- 通常は公式系を含めて新しい順。同一公開日時の場合だけ公式系と信頼度をタイブレークに使用
+- AI・機械学習は国内・海外とも、期間指定が「今日」でもOpenAI・Anthropic・Google/Geminiの取得済み最新を各1件確保
 - 同一URL、または正規化したタイトルが同じ記事は配信元が異なっても1件に統合（重複除外は維持）
 - Google News内では、異なる見出しでも固有名詞・人名などの主要語が一致する同一トピックを1件に統合（維持）
 - 本文が取得できない候補は`filter_candidates_with_article_body`が除外し、予備候補（`limit`の3倍まで検証）で自動的に穴埋めする。ただし公式系とGoogle News系は本文が取れなくてもRSS概要で生成できるため除外しない
@@ -466,6 +476,8 @@ X文字数カウントは以下のルールです。
 | `keyword` | キーワード検索 |
 | `request_id` | キャンセル対象を識別するID |
 
+AI・機械学習の通常取得では`lang`に関係なく、`days`の範囲外であってもOpenAI・Anthropic・Google/Geminiの最新公式記事を各1件返します。該当記事には`isPriorityOfficialLatest: true`と`officialGroup`を付け、レスポンス全体には`official_latest_count`を含めます。画面上でも「3社の公式最新」と明示します。
+
 ### 取得キャンセル
 
 候補取得時、フロントエンドは `request_id` を生成して `/api/rss` に渡します。
@@ -504,7 +516,7 @@ X文字数カウントは以下のルールです。
 - 高速取得予算: 6.0秒
 - 最大取得予算: 12.0秒
 
-十分な件数（言語・カテゴリ関連度フィルタ適用後で`limit`件）が集まった時点で、残りのフィードを待たずに早期終了します。このため、キャッシュが冷えた初回検索は速いフィードだけで確定し、数分後の再検索で候補の顔ぶれが変わることがあります（仕様として許容）。
+十分な件数（言語・カテゴリ関連度フィルタ適用後で`limit`件）が集まった時点で、残りのフィードを待たずに早期終了します。ただしAI・機械学習では国内・海外とも、OpenAI Blog・Anthropic Blog・Google DeepMind Blog・Google AI Blog・Google Gemini Blogに加え、OpenAI Product Release Notes・Claude Help Center Release Notes・Claude Platform Release Notesが完了するまで件数による早期終了を行いません。
 
 ### 並列取得
 
@@ -551,7 +563,8 @@ RenderでのWeb運用を想定しています。
 - タグ生成
 
 1回あたりの費用は記事本文の長さ、翻訳件数、再生成回数により変動します。
-現在は `gemini-2.5-flash-lite`（無料枠中心の低コスト運用）を使う設計です。
+投稿文生成・候補翻訳ともに低コストな `gemini-2.5-flash-lite` を使います。
+投稿文は「原文根拠付きの事実整理 → 本文生成 → 根拠照合と読みやすさの最終校正」の3段階で生成するため、従来よりAPI呼び出し回数と料金は増えます。
 
 ## 既知の仕様・注意点
 
@@ -895,3 +908,23 @@ RenderでのWeb運用を想定しています。
   - 起動時のデフォルトカテゴリ（AI・機械学習）フィード事前ウォームアップを追加: `warm_up_default_category()`をサーバー起動時にデーモンスレッドで実行し、28フィードを事前取得して`_RSS_CACHE`を温める。GitHub Releases/Docs更新フィードは`_RSS_CACHE`がfeed_url単位のキーで`article_type`を区別しないため、`get_articles()`が実際に使う型（`github_release`/`docs_update`）を正しく渡す必要がある点に注意して実装（誤った型で温めるとキャッシュ経由で本番の取得結果まで誤分類されるバグになるため）
   - `COOKIE_SECRET`未設定時のセキュリティ警告を追加: `BASIC_USER`/`BASIC_PASS`が設定されている（認証有効）のに`COOKIE_SECRET`環境変数が未設定の場合、起動時にログイン用パスワードがCookie署名鍵として代用されている旨を警告表示する。認証無効時（`BASIC_USER`/`PASS`未設定）は警告しない
   - 検証: サーバーを実際に起動し3パターン（認証無効/`COOKIE_SECRET`未設定で認証有効/`COOKIE_SECRET`設定済み）で警告の出方を確認、ウォームアップのログとキャッシュ内容（`github_release`型が正しく付与されていること）を確認、ウォームアップ後の実検索が28フィード分キャッシュヒットして高速化することを確認。Node.jsで投稿履歴の保存・復元・日付跨ぎ破棄・10件超の切り捨て・壊れたJSONでの非クラッシュ、および切り口・構成統合呼び出しの正常系・異常系（フォールバック）をそれぞれ単体テストしすべてPASSを確認
+- 【AI公式5フィードの取得保証と3社枠確保】AI・機械学習（海外）の取得で、高頻度メディアが先に20件返すと公式フィードが未完了のまま早期終了していた問題を修正
+  - OpenAI Blog・Anthropic Blog・Google DeepMind Blog・Google AI Blog・Google Gemini Blogの5フィードは、件数による早期終了判定より先に必ず完了を待つ
+  - 指定期間内に公式記事がある場合、OpenAI・Anthropic・Google/Geminiの3グループから最新1件ずつを本文確認プールの先頭に予約し、最終20件から押し出されないようにした
+  - 予約は表示順には影響させず、本文確認後に全候補を通常の新着順へ戻す
+  - 実フィードによる「海外・3日以内・20件」検証で、OpenAI Blog・Anthropic Blog・Google Gemini Blogが各1件ずつ最終候補に含まれることを確認
+- 【AI製品の公式更新ソースを追加】OpenAI Product Release Notes、Claude Help Center Release Notes、Claude Platform Release NotesをAI・機械学習の優先ソースへ追加
+  - OpenAI Product Release NotesとClaude Platform Release Notesは公式RSSを`docs_update`として取得
+  - RSSのないClaude Help Centerは公式HTMLの`h3`日付と太字見出しを解析し、同じ日付に複数更新がある場合も別候補として取得
+  - 3ソースをOpenAI / Anthropicの公式枠候補と早期終了前の完了必須ソースへ追加し、高頻度メディアに押し出される前に処理する
+  - 実取得でClaude Help CenterとClaude Platform RSSの各5件を正常に解析し、日付・タイトル・`docs_update`分類を確認。OpenAI Product RSSは公式URLを確認済みだが、ローカル検証元IPに対してCloudflare challenge（HTTP 403）が返るため、実行環境によっては既存のOpenAI Blogだけで公式枠を補完する
+- 【AI重要3社の最新公式情報を常時表示】AI・機械学習では国内・海外とも期間指定に関係なくOpenAI・Anthropic・Google/Geminiの最新公式記事を各1件確保するよう変更
+  - 通常ニュースは従来どおり「今日／1日／3日／7日」の期間条件を守り、3社の公式最新だけを例外として期間外から補完
+  - 公式最新記事に`isPriorityOfficialLatest`と`officialGroup`を付与し、「今日」の最終防御フィルタでも除外しない
+  - 候補カードに「OpenAI 公式最新」等のバッジを表示し、取得件数欄にも「3社の公式最新3件を含む」と明示
+  - 実フィードの「今日」検証を国内・海外の両方で行い、OpenAI Blog（7/23）・Anthropic Blog（7/23）・Google Gemini Blog（7/23）が当日記事ではなくても各1件残ることを確認
+- 【関連プロジェクト作業メモ】ペットサロン向けWebサービス「うちの子ノート」のMVPを `/Users/nao/Desktop/projects/groom-loop` に新規実装
+  - Next.js App Router / TypeScript / Tailwind CSS / Supabase Auth・PostgreSQL・Storage・RLS / Vercel AI SDKで構成
+  - スタッフログイン→飼い主・ペット登録→施術・写真・テキスト/音声メモ入力→AI報告文生成・編集→推測困難なURLでお迎えカード公開、の一連フローを実装
+  - 全業務テーブルの`salon_id`と複合外部キー、RLS、Storageパス制約で店舗データを分離。公開カードは飼い主個人情報を取得せず、非公開写真を短期署名URLで表示
+  - AIプロンプトで医療診断・病名推測・治療助言を禁止し、スタッフ確認後のみ公開可能とした。`npm run lint`・`npm run typecheck`・`npm run build`成功、スマートフォン幅のブラウザ表示も確認済み

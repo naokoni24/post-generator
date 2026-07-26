@@ -1973,6 +1973,8 @@ let activeOpinionStyle='practical';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
 let candidates=[], selectedIdx=-1, postHistory=[], visibleCount=INITIAL_VISIBLE_COUNT;
+const CANDIDATE_HISTORY_KEY='it_candidate_history_v1';
+let candidateHistoryByQuery={};
 let lastFetchInfo=null;
 let currentFetchRequestId=null;
 let currentFetchController=null;
@@ -1980,6 +1982,49 @@ let fetchCancelled=false;
 let lastArticle=null, lastArticleBody='';
 
 function el(id){return document.getElementById(id);}
+
+function candidateQueryKey(category,lang,includeX,days,keyword){
+  return [category||'',lang,includeX,days,(keyword||'').trim().toLowerCase()].join('\u001f');
+}
+function candidateIdentity(article){
+  if(article.url)return `url:${article.url}`;
+  return `title:${article.source||''}\u001f${article.title_en||article.title||''}`;
+}
+function loadCandidateHistory(){
+  try{
+    const raw=localStorage.getItem(CANDIDATE_HISTORY_KEY);
+    if(!raw)return;
+    const data=JSON.parse(raw);
+    if(data.date!==todayKeyJST()||!data.entries||typeof data.entries!=='object')return;
+    candidateHistoryByQuery=data.entries;
+  }catch(e){ console.warn('過去候補の読み込みに失敗',e); }
+}
+function saveCandidateHistory(){
+  try{
+    const recentEntries=Object.fromEntries(
+      Object.entries(candidateHistoryByQuery)
+        .sort((a,b)=>(b[1].updatedAt||0)-(a[1].updatedAt||0))
+        .slice(0,8)
+    );
+    candidateHistoryByQuery=recentEntries;
+    localStorage.setItem(CANDIDATE_HISTORY_KEY,JSON.stringify({date:todayKeyJST(),entries:recentEntries}));
+  }catch(e){ console.warn('過去候補の保存に失敗',e); }
+}
+function mergeWithPreviousCandidates(queryKey,freshCandidates){
+  const previous=candidateHistoryByQuery[queryKey]?.items||[];
+  const merged=[];
+  const seen=new Set();
+  for(const article of [...freshCandidates,...previous]){
+    const identity=candidateIdentity(article);
+    if(!identity||seen.has(identity))continue;
+    seen.add(identity);
+    merged.push(article);
+    if(merged.length>=INITIAL_VISIBLE_COUNT)break;
+  }
+  candidateHistoryByQuery[queryKey]={updatedAt:Date.now(),items:merged};
+  saveCandidateHistory();
+  return {items:merged,reusedCount:Math.max(0,merged.length-freshCandidates.length)};
+}
 
 function pillStyle(active){
   return active
@@ -2346,7 +2391,16 @@ el('generateBtn').onclick=async()=>{
     const includeX='0';
     const days=el('recentDays').value;
     const keyword=el('keywordBox').value.trim();
-    candidates=await fetchCandidatesWithRetry(activeCat||'',activeLang,includeX,days,keyword,currentFetchRequestId,currentFetchController);
+    const queryKey=candidateQueryKey(activeCat||'',activeLang,includeX,days,keyword);
+    const freshCandidates=await fetchCandidatesWithRetry(activeCat||'',activeLang,includeX,days,keyword,currentFetchRequestId,currentFetchController);
+    const merged=mergeWithPreviousCandidates(queryKey,freshCandidates);
+    candidates=merged.items;
+    if(lastFetchInfo){
+      lastFetchInfo.count=candidates.length;
+      lastFetchInfo.todayCount=candidates.filter(a=>a.type==='official_x'||a.ageDays===0).length;
+      lastFetchInfo.officialLatestCount=candidates.filter(a=>a.isPriorityOfficialLatest).length;
+      lastFetchInfo.reusedCount=merged.reusedCount;
+    }
     el('loadingSkels').style.display='none';
     setStatus(false);
     setFetchCancelVisible(false);
@@ -2695,7 +2749,7 @@ function loadHistory(i){
   el('resultCard').style.display='block';
 }
 
-renderCats();renderLangs();loadPostHistory();
+renderCats();renderLangs();loadPostHistory();loadCandidateHistory();
 </script>
 </body>
 </html>

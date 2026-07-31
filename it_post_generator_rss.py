@@ -1878,9 +1878,9 @@ HTML = r"""<!DOCTYPE html>
   <div style="padding:1rem;margin-bottom:1rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px">
     <div class="section-label" style="margin:0 0 5px">✍️ キーワードからX投稿を作る</div>
     <p style="margin:0 0 10px;color:#7c4a03;font-size:13px;line-height:1.5">検索結果を使わず、キーワードと指示だけからX投稿文を作成します。ハッシュタグは付けず、標準（140〜220字）をおすすめします。</p>
-    <input type="text" id="articleKeyword" maxlength="160" placeholder="例：中小企業におけるAIエージェントの活用" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;border:1px solid #fdba74;border-radius:8px;font-size:16px">
+    <input type="text" id="articleKeyword" maxlength="160" placeholder="自由入力キーワード（複数はカンマ区切り）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;border:1px solid #fdba74;border-radius:8px;font-size:16px">
     <div style="margin-top:10px">
-      <span style="color:#7c4a03;font-size:12px">AIテーマから選ぶ：</span>
+      <span style="color:#7c4a03;font-size:12px">AIテーマから選ぶ（複数選択可）：</span>
       <div id="articleAiKeywordRow" style="display:inline-flex;gap:6px;flex-wrap:wrap;vertical-align:middle"></div>
     </div>
     <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
@@ -2093,12 +2093,28 @@ const X_POST_LENGTHS={
   detailed:{min:250,max:350,label:'詳しく（250〜350字）'},
 };
 const ARTICLE_AI_KEYWORDS=['Claude','ChatGPT','Gemini','AIエージェント','生成AIの業務活用','AIコーディング支援','AIセキュリティ','AIガバナンス'];
+let selectedArticleAiKeywords=[];
 function renderArticleAiKeywords(){
-  el('articleAiKeywordRow').innerHTML=ARTICLE_AI_KEYWORDS.map(keyword=>`<button onclick="setArticleAiKeyword('${keyword}')" style="font-size:12px;padding:5px 9px;border:1px solid #fdba74;border-radius:999px;background:#fff;color:#9a3412;cursor:pointer">${keyword}</button>`).join('');
+  el('articleAiKeywordRow').innerHTML=ARTICLE_AI_KEYWORDS.map(keyword=>{
+    const selected=selectedArticleAiKeywords.includes(keyword);
+    const style=selected
+      ?'font-size:12px;padding:5px 9px;border:1px solid #c2410c;border-radius:999px;background:#ea580c;color:#fff;cursor:pointer'
+      :'font-size:12px;padding:5px 9px;border:1px solid #fdba74;border-radius:999px;background:#fff;color:#9a3412;cursor:pointer';
+    return `<button onclick="setArticleAiKeyword('${keyword}')" style="${style}">${selected?'✓ ':''}${keyword}</button>`;
+  }).join('');
 }
 function setArticleAiKeyword(keyword){
-  el('articleKeyword').value=keyword;
-  el('articleKeyword').focus();
+  selectedArticleAiKeywords=selectedArticleAiKeywords.includes(keyword)
+    ?selectedArticleAiKeywords.filter(item=>item!==keyword)
+    :[...selectedArticleAiKeywords,keyword];
+  renderArticleAiKeywords();
+}
+function getArticleKeywords(){
+  const freeKeywords=el('articleKeyword').value
+    .split(/[、,，\n]+/)
+    .map(keyword=>keyword.trim())
+    .filter(Boolean);
+  return [...new Set([...selectedArticleAiKeywords,...freeKeywords])];
 }
 function articleTextLength(text){return Array.from(String(text||'').replace(/\s/g,'')).length;}
 function updateArticleDraftChar(){
@@ -2111,9 +2127,9 @@ function updateArticleDraftChar(){
 }
 
 el('articleGenerateBtn').onclick=async()=>{
-  const keyword=el('articleKeyword').value.trim();
-  if(!keyword){
-    showError('記事にしたいキーワードを入力してください');
+  const keywords=getArticleKeywords();
+  if(!keywords.length){
+    showError('AIテーマを1つ以上選ぶか、キーワードを入力してください');
     el('articleKeyword').focus();
     return;
   }
@@ -2127,8 +2143,10 @@ el('articleGenerateBtn').onclick=async()=>{
   try{
     const data=await callProxy([{role:'user',content:`あなたは日本語のAI・IT分野に詳しいSNS編集者です。以下の指定だけを使い、Xに投稿する日本語の本文を作成してください。
 
-【テーマ】
-${keyword}
+【組み合わせテーマ】
+${keywords.map(keyword=>`- ${keyword}`).join('\n')}
+
+上記のテーマをばらばらに紹介せず、共通する課題・活用場面・違いなど、1つの筋の通った切り口で結び付けること。
 
 【想定読者】
 ${audience}

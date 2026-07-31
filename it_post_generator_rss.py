@@ -1879,6 +1879,10 @@ HTML = r"""<!DOCTYPE html>
     <div class="section-label" style="margin:0 0 5px">✍️ キーワードからX投稿を作る</div>
     <p style="margin:0 0 10px;color:#7c4a03;font-size:13px;line-height:1.5">検索結果を使わず、キーワードと指示だけからX投稿文を作成します。ハッシュタグは付けず、標準（140〜220字）をおすすめします。</p>
     <input type="text" id="articleKeyword" maxlength="160" placeholder="例：中小企業におけるAIエージェントの活用" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;border:1px solid #fdba74;border-radius:8px;font-size:16px">
+    <div style="margin-top:10px">
+      <span style="color:#7c4a03;font-size:12px">AIテーマから選ぶ：</span>
+      <div id="articleAiKeywordRow" style="display:inline-flex;gap:6px;flex-wrap:wrap;vertical-align:middle"></div>
+    </div>
     <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
       <select id="articleAudience" style="flex:1;min-width:150px;padding:8px;border:1px solid #fed7aa;border-radius:8px;background:#fff;font:inherit;font-size:13px">
         <option value="AIに詳しくないビジネス担当者">ビジネス担当者向け</option>
@@ -2088,6 +2092,14 @@ const X_POST_LENGTHS={
   standard:{min:140,max:220,label:'標準・おすすめ（140〜220字）'},
   detailed:{min:250,max:350,label:'詳しく（250〜350字）'},
 };
+const ARTICLE_AI_KEYWORDS=['AIエージェント','生成AIの業務活用','RAG・社内ナレッジ検索','AIコーディング支援','AIセキュリティ','AIガバナンス'];
+function renderArticleAiKeywords(){
+  el('articleAiKeywordRow').innerHTML=ARTICLE_AI_KEYWORDS.map(keyword=>`<button onclick="setArticleAiKeyword('${keyword}')" style="font-size:12px;padding:5px 9px;border:1px solid #fdba74;border-radius:999px;background:#fff;color:#9a3412;cursor:pointer">${keyword}</button>`).join('');
+}
+function setArticleAiKeyword(keyword){
+  el('articleKeyword').value=keyword;
+  el('articleKeyword').focus();
+}
 function articleTextLength(text){return Array.from(String(text||'').replace(/\s/g,'')).length;}
 function updateArticleDraftChar(){
   const setting=X_POST_LENGTHS[el('articleLength').value]||X_POST_LENGTHS.standard;
@@ -2880,7 +2892,7 @@ function loadHistory(i){
   el('resultCard').style.display='block';
 }
 
-renderCats();renderLangs();loadPostHistory();loadCandidateHistory();
+renderCats();renderLangs();renderArticleAiKeywords();loadPostHistory();loadCandidateHistory();
 </script>
 </body>
 </html>

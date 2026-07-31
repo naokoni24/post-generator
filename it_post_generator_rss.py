@@ -1876,8 +1876,8 @@ HTML = r"""<!DOCTYPE html>
   <p class="subtitle">AIの最新情報を選び、投稿文と画像プロンプトを作成</p>
 
   <div style="padding:1rem;margin-bottom:1rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px">
-    <div class="section-label" style="margin:0 0 5px">✍️ キーワードから新規記事を作る</div>
-    <p style="margin:0 0 10px;color:#7c4a03;font-size:13px;line-height:1.5">検索結果を使わず、キーワードと指示だけから記事の下書きを作成します。</p>
+    <div class="section-label" style="margin:0 0 5px">✍️ キーワードからX投稿を作る</div>
+    <p style="margin:0 0 10px;color:#7c4a03;font-size:13px;line-height:1.5">検索結果を使わず、キーワードと指示だけからX投稿文を作成します。おすすめは標準（140〜220字）です。</p>
     <input type="text" id="articleKeyword" maxlength="160" placeholder="例：中小企業におけるAIエージェントの活用" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;border:1px solid #fdba74;border-radius:8px;font-size:16px">
     <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
       <select id="articleAudience" style="flex:1;min-width:150px;padding:8px;border:1px solid #fed7aa;border-radius:8px;background:#fff;font:inherit;font-size:13px">
@@ -1887,13 +1887,13 @@ HTML = r"""<!DOCTYPE html>
         <option value="AIに興味を持ち始めた一般読者">はじめての人向け</option>
       </select>
       <select id="articleLength" style="padding:8px;border:1px solid #fed7aa;border-radius:8px;background:#fff;font:inherit;font-size:13px">
-        <option value="800">約800字</option>
-        <option value="1500" selected>約1,500字</option>
-        <option value="2500">約2,500字</option>
+        <option value="short">短め（80〜120字）</option>
+        <option value="standard" selected>標準・おすすめ（140〜220字）</option>
+        <option value="detailed">詳しく（250〜350字）</option>
       </select>
     </div>
-    <textarea id="articleInstruction" maxlength="800" placeholder="記事に入れたい内容・口調（任意）\n例：導入のメリットだけでなく、最初に確認すべき注意点も入れる。" style="width:100%;min-height:66px;margin-top:9px;padding:9px 10px;border:1px solid #fed7aa;border-radius:8px;resize:vertical;font:inherit;font-size:13px;line-height:1.5"></textarea>
-    <button class="gen-btn" id="articleGenerateBtn" style="margin-top:10px;background:#ea580c">✍️ 記事の下書きを生成</button>
+    <textarea id="articleInstruction" maxlength="800" placeholder="投稿に入れたい内容・口調（任意）\n例：経営者向けに、導入前に確認すべき注意点も入れる。" style="width:100%;min-height:66px;margin-top:9px;padding:9px 10px;border:1px solid #fed7aa;border-radius:8px;resize:vertical;font:inherit;font-size:13px;line-height:1.5"></textarea>
+    <button class="gen-btn" id="articleGenerateBtn" style="margin-top:10px;background:#ea580c">✍️ X投稿文を生成</button>
   </div>
 
   <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid #e5e5e5;border-radius:8px;font-size:16px">
@@ -1976,11 +1976,15 @@ HTML = r"""<!DOCTYPE html>
   </div>
 
   <div class="result-card" id="articleDraftCard">
-    <div class="tweet-label">新規記事の下書き（編集可）</div>
-    <div class="article-draft-note">キーワードから生成した下書きです。最新ニュースや固有の数値を扱う場合は、公開前に一次情報で確認してください。</div>
-    <div class="tweet-box" id="articleDraftBox" contenteditable="true" style="min-height:260px;white-space:pre-wrap"></div>
+    <div class="tweet-label">キーワードから作ったX投稿文（編集可）</div>
+    <div class="article-draft-note">検索結果を使わない投稿文です。最新ニュースや固有の数値を扱う場合は、公開前に一次情報で確認してください。</div>
+    <div class="tweet-box" id="articleDraftBox" contenteditable="true" style="min-height:150px;white-space:pre-wrap"></div>
+    <div class="char-row" style="margin-top:10px">
+      <span class="char-count" id="articleDraftCharCount"></span>
+    </div>
     <div class="action-row" style="margin-top:12px">
-      <button class="action-btn" id="articleDraftCopyBtn">📋 記事をコピー</button>
+      <button class="action-btn" id="articleDraftCopyBtn">📋 コピー</button>
+      <button class="action-btn x-btn" id="articleDraftXBtn">X で投稿</button>
     </div>
   </div>
 
@@ -2079,6 +2083,21 @@ function setAiKeyword(keyword){
   el('keywordBox').focus();
 }
 
+const X_POST_LENGTHS={
+  short:{min:80,max:120,label:'短め（80〜120字）'},
+  standard:{min:140,max:220,label:'標準・おすすめ（140〜220字）'},
+  detailed:{min:250,max:350,label:'詳しく（250〜350字）'},
+};
+function articleTextLength(text){return Array.from(String(text||'').replace(/\s/g,'')).length;}
+function updateArticleDraftChar(){
+  const setting=X_POST_LENGTHS[el('articleLength').value]||X_POST_LENGTHS.standard;
+  const text=el('articleDraftBox').innerText;
+  const chars=articleTextLength(text);
+  const weighted=xWeightedLen(text);
+  el('articleDraftCharCount').textContent=`${chars}字 / 目安 ${setting.min}〜${setting.max}字（Xカウント ${weighted}）`;
+  el('articleDraftCharCount').className='char-count'+(chars>setting.max?' warn':'');
+}
+
 el('articleGenerateBtn').onclick=async()=>{
   const keyword=el('articleKeyword').value.trim();
   if(!keyword){
@@ -2087,14 +2106,14 @@ el('articleGenerateBtn').onclick=async()=>{
     return;
   }
   const audience=el('articleAudience').value;
-  const length=Number(el('articleLength').value)||1500;
+  const lengthSetting=X_POST_LENGTHS[el('articleLength').value]||X_POST_LENGTHS.standard;
   const instruction=el('articleInstruction').value.trim().slice(0,800);
   const button=el('articleGenerateBtn');
   button.disabled=true;
-  button.innerHTML='<div class="spinner"></div>記事を生成中...';
-  setStatus(true,'キーワードから記事の構成と本文を作成中...');
+  button.innerHTML='<div class="spinner"></div>投稿文を生成中...';
+  setStatus(true,'キーワードからX投稿文を作成中...');
   try{
-    const data=await callProxy([{role:'user',content:`あなたは日本語のAI・IT分野に詳しい編集者です。以下の指定だけを使い、公開前に編集できる記事の下書きをMarkdownで作成してください。
+    const data=await callProxy([{role:'user',content:`あなたは日本語のAI・IT分野に詳しいSNS編集者です。以下の指定だけを使い、Xに投稿する日本語の本文を作成してください。
 
 【テーマ】
 ${keyword}
@@ -2103,25 +2122,30 @@ ${keyword}
 ${audience}
 
 【目安の長さ】
-約${length}字
+${lengthSetting.min}〜${lengthSetting.max}字（本文の文字数。URLとハッシュタグは含めない）
 
 【追加指示】
 ${instruction||'なし'}
 
 【構成】
-- 最初に、内容を端的に表す記事タイトルをMarkdownのH1（# ）で1つ書く
-- 導入、H2見出し2〜4個、まとめの順にする
-- 読者が「何を理解し、次に何をすればよいか」が分かる実用的な内容にする
+- 1文目でテーマの価値や意外性を具体的に伝える
+- 2〜5文程度で、読者が「何を理解し、次に何をすればよいか」が分かる実用的な内容にする
+- 1〜2文ごとに改行し、スマートフォンで読みやすくする
 
 【正確さのルール】
 - この依頼には検索結果や一次情報が渡されていない。直近の発表、現在の製品仕様、価格、利用者数、調査結果、日付、固有の数値を事実として書かない
 - 「最新」「現在」「先日発表」など、鮮度を示す表現を使わない
 - 一般的に説明できる内容に限定し、不確かな内容は「確認が必要」「場合がある」と明示する
 - 存在しない機能・事例・引用・出典を作らない
-- ハッシュタグ、URL、前置き、生成に関する説明は不要。完成した記事本文のみ返す`}]);
-    const draft=data.text.trim();
-    if(!draft)throw new Error('記事本文を作成できませんでした');
+- ハッシュタグ、URL、見出し、Markdown、前置き、生成に関する説明は不要。完成した投稿本文のみ返す`}]);
+    let draft=data.text.trim();
+    if(!draft)throw new Error('投稿文を作成できませんでした');
+    if(articleTextLength(draft)>lengthSetting.max){
+      const shortened=await callProxy([{role:'user',content:`次のX投稿本文を、事実関係と主旨を変えずに${lengthSetting.min}〜${lengthSetting.max}字へ短縮してください。URL、ハッシュタグ、見出し、前置きは不要です。投稿本文だけを返してください。\n\n${draft}`}]);
+      if(shortened.text.trim())draft=shortened.text.trim();
+    }
     el('articleDraftBox').innerText=draft;
+    updateArticleDraftChar();
     el('articleDraftCard').style.display='block';
     el('articleDraftCard').scrollIntoView({behavior:'smooth',block:'start'});
   }catch(e){
@@ -2129,9 +2153,10 @@ ${instruction||'なし'}
   }finally{
     setStatus(false);
     button.disabled=false;
-    button.textContent='✍️ 記事の下書きを生成';
+    button.textContent='✍️ X投稿文を生成';
   }
 };
+el('articleDraftBox').oninput=updateArticleDraftChar;
 function renderOpinionStyles(){
   const includeOpinion=el('includeOpinion')&&el('includeOpinion').checked;
   el('opinionStyleRow').style.display=includeOpinion?'flex':'none';
@@ -2808,8 +2833,13 @@ el('articleDraftCopyBtn').onclick=async()=>{
   try{
     await navigator.clipboard.writeText(el('articleDraftBox').innerText);
     el('articleDraftCopyBtn').textContent='✓ コピー済';
-    setTimeout(()=>el('articleDraftCopyBtn').textContent='📋 記事をコピー',1500);
+    setTimeout(()=>el('articleDraftCopyBtn').textContent='📋 コピー',1500);
   }catch(e){showError('コピーに失敗しました');}
+};
+el('articleDraftXBtn').onclick=()=>{
+  const draft=el('articleDraftBox').innerText.trim();
+  if(!draft)return;
+  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(draft)}`,'_blank');
 };
 
 const POST_HISTORY_KEY='it_post_history_v1';

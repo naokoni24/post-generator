@@ -2092,7 +2092,28 @@ HTML = r"""<!DOCTYPE html>
     <h1 class="app-title"><span>📰 IT記事 投稿ジェネレーター</span><span class="rss-badge">複数ソース版</span></h1>
     <a href="/logout" class="logout-link">ログアウト</a>
   </div>
-  <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得</p>
+  <p class="subtitle">AIの最新情報を選び、投稿文と画像プロンプトを作成</p>
+
+  <div style="padding:1rem;margin-bottom:1rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px">
+    <div class="section-label" style="margin:0 0 5px">✍️ キーワードから新規記事を作る</div>
+    <p style="margin:0 0 10px;color:#7c4a03;font-size:13px;line-height:1.5">検索結果を使わず、キーワードと指示だけから記事の下書きを作成します。</p>
+    <input type="text" id="articleKeyword" maxlength="160" placeholder="例：中小企業におけるAIエージェントの活用" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;border:1px solid #fdba74;border-radius:8px;font-size:16px">
+    <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
+      <select id="articleAudience" style="flex:1;min-width:150px;padding:8px;border:1px solid #fed7aa;border-radius:8px;background:#fff;font:inherit;font-size:13px">
+        <option value="AIに詳しくないビジネス担当者">ビジネス担当者向け</option>
+        <option value="中小企業の経営者">中小企業の経営者向け</option>
+        <option value="開発者・IT実務担当者">開発・IT担当者向け</option>
+        <option value="AIに興味を持ち始めた一般読者">はじめての人向け</option>
+      </select>
+      <select id="articleLength" style="padding:8px;border:1px solid #fed7aa;border-radius:8px;background:#fff;font:inherit;font-size:13px">
+        <option value="800">約800字</option>
+        <option value="1500" selected>約1,500字</option>
+        <option value="2500">約2,500字</option>
+      </select>
+    </div>
+    <textarea id="articleInstruction" maxlength="800" placeholder="記事に入れたい内容・口調（任意）\n例：導入のメリットだけでなく、最初に確認すべき注意点も入れる。" style="width:100%;min-height:66px;margin-top:9px;padding:9px 10px;border:1px solid #fed7aa;border-radius:8px;resize:vertical;font:inherit;font-size:13px;line-height:1.5"></textarea>
+    <button class="gen-btn" id="articleGenerateBtn" style="margin-top:10px;background:#ea580c">✍️ 記事の下書きを生成</button>
+  </div>
 
   <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid #e5e5e5;border-radius:8px;font-size:16px">
 
@@ -2173,6 +2194,15 @@ HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 
+  <div class="result-card" id="articleDraftCard">
+    <div class="tweet-label">新規記事の下書き（編集可）</div>
+    <div class="article-draft-note">キーワードから生成した下書きです。最新ニュースや固有の数値を扱う場合は、公開前に一次情報で確認してください。</div>
+    <div class="tweet-box" id="articleDraftBox" contenteditable="true" style="min-height:260px;white-space:pre-wrap"></div>
+    <div class="action-row" style="margin-top:12px">
+      <button class="action-btn" id="articleDraftCopyBtn">📋 記事をコピー</button>
+    </div>
+  </div>
+
   <div class="history-section" id="historySection">
     <div class="section-label">今日の投稿履歴</div>
     <div id="historyList"></div>
@@ -2213,6 +2243,69 @@ function renderCats(){
 function renderLangs(){
   el('langGroup').innerHTML=[{k:'jp',l:'🇯🇵 国内'},{k:'en',l:'🌐 海外'}].map(l=>`<button onclick="setLang('${l.k}')" style="${pillStyle(activeLang===l.k)}">${l.l}</button>`).join('');
 }
+function renderAiKeywords(){
+  el('aiKeywordRow').innerHTML=AI_KEYWORDS.map(keyword=>`<button onclick="setAiKeyword('${keyword}')" style="font-size:12px;padding:5px 9px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#475569;cursor:pointer">${keyword}</button>`).join('');
+}
+function setAiKeyword(keyword){
+  el('keywordBox').value=keyword;
+  activeCat='AI・機械学習';
+  renderCats();
+  el('keywordBox').focus();
+}
+
+el('articleGenerateBtn').onclick=async()=>{
+  const keyword=el('articleKeyword').value.trim();
+  if(!keyword){
+    showError('記事にしたいキーワードを入力してください');
+    el('articleKeyword').focus();
+    return;
+  }
+  const audience=el('articleAudience').value;
+  const length=Number(el('articleLength').value)||1500;
+  const instruction=el('articleInstruction').value.trim().slice(0,800);
+  const button=el('articleGenerateBtn');
+  button.disabled=true;
+  button.innerHTML='<div class="spinner"></div>記事を生成中...';
+  setStatus(true,'キーワードから記事の構成と本文を作成中...');
+  try{
+    const data=await callProxy([{role:'user',content:`あなたは日本語のAI・IT分野に詳しい編集者です。以下の指定だけを使い、公開前に編集できる記事の下書きをMarkdownで作成してください。
+
+【テーマ】
+${keyword}
+
+【想定読者】
+${audience}
+
+【目安の長さ】
+約${length}字
+
+【追加指示】
+${instruction||'なし'}
+
+【構成】
+- 最初に、内容を端的に表す記事タイトルをMarkdownのH1（# ）で1つ書く
+- 導入、H2見出し2〜4個、まとめの順にする
+- 読者が「何を理解し、次に何をすればよいか」が分かる実用的な内容にする
+
+【正確さのルール】
+- この依頼には検索結果や一次情報が渡されていない。直近の発表、現在の製品仕様、価格、利用者数、調査結果、日付、固有の数値を事実として書かない
+- 「最新」「現在」「先日発表」など、鮮度を示す表現を使わない
+- 一般的に説明できる内容に限定し、不確かな内容は「確認が必要」「場合がある」と明示する
+- 存在しない機能・事例・引用・出典を作らない
+- ハッシュタグ、URL、前置き、生成に関する説明は不要。完成した記事本文のみ返す`}]);
+    const draft=data.text.trim();
+    if(!draft)throw new Error('記事本文を作成できませんでした');
+    el('articleDraftBox').innerText=draft;
+    el('articleDraftCard').style.display='block';
+    el('articleDraftCard').scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){
+    showError('記事生成に失敗: '+e.message);
+  }finally{
+    setStatus(false);
+    button.disabled=false;
+    button.textContent='✍️ 記事の下書きを生成';
+  }
+};
 function renderOpinionStyles(){
   const includeOpinion=el('includeOpinion')&&el('includeOpinion').checked;
   el('opinionStyleRow').style.display=includeOpinion?'flex':'none';
@@ -2936,6 +3029,14 @@ el('copyBtn').onclick=async()=>{
     el('copyBtn').textContent='✓ コピー済';
     setTimeout(()=>el('copyBtn').textContent='📋 コピー',1500);
   }catch{showError('コピーに失敗');}
+};
+
+el('articleDraftCopyBtn').onclick=async()=>{
+  try{
+    await navigator.clipboard.writeText(el('articleDraftBox').innerText);
+    el('articleDraftCopyBtn').textContent='✓ コピー済';
+    setTimeout(()=>el('articleDraftCopyBtn').textContent='📋 記事をコピー',1500);
+  }catch(e){showError('コピーに失敗しました');}
 };
 
 const POST_HISTORY_KEY='it_post_history_v1';

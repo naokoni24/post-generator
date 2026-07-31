@@ -1877,7 +1877,7 @@ HTML = r"""<!DOCTYPE html>
 
   <div style="padding:1rem;margin-bottom:1rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px">
     <div class="section-label" style="margin:0 0 5px">✍️ キーワードからX投稿を作る</div>
-    <p style="margin:0 0 10px;color:#7c4a03;font-size:13px;line-height:1.5">検索結果を使わず、キーワードと指示だけからX投稿文を作成します。おすすめは標準（140〜220字）です。</p>
+    <p style="margin:0 0 10px;color:#7c4a03;font-size:13px;line-height:1.5">検索結果を使わず、キーワードと指示だけからX投稿文を作成します。ハッシュタグは付けず、標準（140〜220字）をおすすめします。</p>
     <input type="text" id="articleKeyword" maxlength="160" placeholder="例：中小企業におけるAIエージェントの活用" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;border:1px solid #fdba74;border-radius:8px;font-size:16px">
     <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
       <select id="articleAudience" style="flex:1;min-width:150px;padding:8px;border:1px solid #fed7aa;border-radius:8px;background:#fff;font:inherit;font-size:13px">

@@ -2092,7 +2092,7 @@ const X_POST_LENGTHS={
   standard:{min:140,max:220,label:'標準・おすすめ（140〜220字）'},
   detailed:{min:250,max:350,label:'詳しく（250〜350字）'},
 };
-const ARTICLE_AI_KEYWORDS=['AIエージェント','生成AIの業務活用','AIコーディング支援','AIセキュリティ','AIガバナンス'];
+const ARTICLE_AI_KEYWORDS=['Claude','ChatGPT','Gemini','AIエージェント','生成AIの業務活用','AIコーディング支援','AIセキュリティ','AIガバナンス'];
 function renderArticleAiKeywords(){
   el('articleAiKeywordRow').innerHTML=ARTICLE_AI_KEYWORDS.map(keyword=>`<button onclick="setArticleAiKeyword('${keyword}')" style="font-size:12px;padding:5px 9px;border:1px solid #fdba74;border-radius:999px;background:#fff;color:#9a3412;cursor:pointer">${keyword}</button>`).join('');
 }

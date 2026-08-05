@@ -67,14 +67,6 @@ IT記事投稿ジェネレーターは、RSS / Atom、GitHub Releases、公式Bl
 
 ### 入力項目
 
-- キーワードからX投稿を作る（検索とは独立した機能）
-  - AIテーマ、自由入力キーワード、想定読者、投稿の長さ、追加指示を入力して、検索結果を使わずにX投稿文を生成する
-  - Claude / ChatGPT / Gemini / AIエージェント / 生成AIの業務活用 / AIコーディング支援 / AIセキュリティ / AIガバナンスは、複数選択してテーマとして組み合わせられる
-  - 自由入力キーワードもカンマ区切りで複数指定できる。選択・入力したテーマを、1つの切り口で結び付けた投稿文を生成する
-  - 文字数は短め（80〜120字）/ 標準・おすすめ（140〜220字）/ 詳しく（250〜350字）から選択できる
-  - 標準は、要点を伝えつつ参照URLを後から加える余地を残せるため、通常の投稿に推奨する
-  - ハッシュタグは生成・付加しない
-  - 生成後は実文字数とXカウントを確認でき、投稿文を編集・コピー・X投稿できる
 - キーワード検索ボックス
 - カテゴリ選択
 - 取得先選択
@@ -945,3 +937,10 @@ RenderでのWeb運用を想定しています。
   - Supabase未設定でもスタッフ用ダッシュボードの見た目を確認できる `/demo` ルートと、ログイン画面の「デモ画面を見る」導線を追加
   - デモは `NODE_ENV=development` のときだけ有効で、本番環境では404になるため、Supabase AuthやRLSを迂回しない
   - サンプル店舗・登録ペット数・最近の施術3件を表示。`npm run lint`・`npm run typecheck`・`npm run build`成功、ローカルブラウザ表示を確認済み
+- 【ブランチ整理・機能削除】ユーザーから「キーワードから記事/投稿文を生成する機能はいらない」と依頼があり、削除した
+  - 経緯: このリポジトリのmainブランチは、本セッションとは別の自動化プロセス（groom-loop）によっても直接コミット・pushされていることが判明。ccbba6a（前回セッション末のpush地点）以降、groom-loopが10コミットを追加しており、そのうち7コミット（`Add keyword article draft generator`から`Support combined AI keywords for X posts`まで）で「キーワード（AIテーマ選択＋自由入力）→ 想定読者・文字数・追加指示を指定 → 検索結果を使わずGemini APIでX投稿文を生成」という機能が段階的に作り込まれていた
+  - 対応: origin/main（最新コミット、削除対象のコミット群を含む）を正として作業ツリーをリセットし、そこから当該機能一式を削除。他の正当な変更（「直近検索から短い記事結果を補完するfix」、仕様書同期のdocsコミット）はそのまま維持
+  - 削除した内容: HTML側の入力ボックス（キーワード入力・AIテーマ選択ピル・想定読者/文字数セレクト・追加指示欄・生成ボタン）と結果表示カード（`articleDraftCard`）、JS側の状態・関数一式（`X_POST_LENGTHS`、`ARTICLE_AI_KEYWORDS`、`selectedArticleAiKeywords`、`renderArticleAiKeywords`、`setArticleAiKeyword`、`getArticleKeywords`、`articleTextLength`、`updateArticleDraftChar`、`articleGenerateBtn.onclick`、`articleDraftBox.oninput`、`articleDraftCopyBtn.onclick`、`articleDraftXBtn.onclick`）。あわせて、この機能の初期イテレーションの残骸で一度も呼ばれていなかった未使用コード（`renderAiKeywords`、`setAiKeyword`。存在しない`AI_KEYWORDS`定数・`aiKeywordRow`要素を参照する不完全なデッドコードだった）も削除
+  - サブタイトルを機能追加前の「RSS / GitHub Releases / Docs更新から候補を取得」に戻した
+  - 検証: 削除対象の識別子が完全に残っていないことをgrepで確認、Python構文チェック、JS構文チェック（`node --check`）、`el()`参照とHTML id・onclickで呼ばれる関数の突き合わせ、サーバー実起動でのHTML配信・`/api/rss`動作確認をすべて実施
+  - 【運用上の注意】このリポジトリのmainブランチには、本セッション（Claude Code経由の作業）以外にgroom-loopという自動化プロセスも直接push可能な状態にある。また物理ディレクトリには標準の`.git`（`codex/ai-official-sources`ブランチ、別のリモート追跡）も別途存在し、こちらにも類似機能が独立に追加されていたが今回は触れていない。今後同様の「機能が身に覚えなく増えている」系の報告があれば、まずこの二重管理構造（groom-loopの自動push、および別ブランチの`.git`）を疑うこと

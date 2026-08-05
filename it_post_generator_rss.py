@@ -1873,32 +1873,7 @@ HTML = r"""<!DOCTYPE html>
     <h1 class="app-title"><span>📰 IT記事 投稿ジェネレーター</span><span class="rss-badge">複数ソース版</span></h1>
     <a href="/logout" class="logout-link">ログアウト</a>
   </div>
-  <p class="subtitle">AIの最新情報を選び、投稿文と画像プロンプトを作成</p>
-
-  <div style="padding:1rem;margin-bottom:1rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px">
-    <div class="section-label" style="margin:0 0 5px">✍️ キーワードからX投稿を作る</div>
-    <p style="margin:0 0 10px;color:#7c4a03;font-size:13px;line-height:1.5">検索結果を使わず、キーワードと指示だけからX投稿文を作成します。ハッシュタグは付けず、標準（140〜220字）をおすすめします。</p>
-    <input type="text" id="articleKeyword" maxlength="160" placeholder="自由入力キーワード（複数はカンマ区切り）" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;border:1px solid #fdba74;border-radius:8px;font-size:16px">
-    <div style="margin-top:10px">
-      <span style="color:#7c4a03;font-size:12px">AIテーマから選ぶ（複数選択可）：</span>
-      <div id="articleAiKeywordRow" style="display:inline-flex;gap:6px;flex-wrap:wrap;vertical-align:middle"></div>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">
-      <select id="articleAudience" style="flex:1;min-width:150px;padding:8px;border:1px solid #fed7aa;border-radius:8px;background:#fff;font:inherit;font-size:13px">
-        <option value="AIに詳しくないビジネス担当者">ビジネス担当者向け</option>
-        <option value="中小企業の経営者">中小企業の経営者向け</option>
-        <option value="開発者・IT実務担当者">開発・IT担当者向け</option>
-        <option value="AIに興味を持ち始めた一般読者">はじめての人向け</option>
-      </select>
-      <select id="articleLength" style="padding:8px;border:1px solid #fed7aa;border-radius:8px;background:#fff;font:inherit;font-size:13px">
-        <option value="short">短め（80〜120字）</option>
-        <option value="standard" selected>標準・おすすめ（140〜220字）</option>
-        <option value="detailed">詳しく（250〜350字）</option>
-      </select>
-    </div>
-    <textarea id="articleInstruction" maxlength="800" placeholder="投稿に入れたい内容・口調（任意）\n例：経営者向けに、導入前に確認すべき注意点も入れる。" style="width:100%;min-height:66px;margin-top:9px;padding:9px 10px;border:1px solid #fed7aa;border-radius:8px;resize:vertical;font:inherit;font-size:13px;line-height:1.5"></textarea>
-    <button class="gen-btn" id="articleGenerateBtn" style="margin-top:10px;background:#ea580c">✍️ X投稿文を生成</button>
-  </div>
+  <p class="subtitle">RSS / GitHub Releases / Docs更新から候補を取得</p>
 
   <input type="text" id="keywordBox" placeholder="🔍 キーワードで記事を検索" style="width:100%;box-sizing:border-box;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid #e5e5e5;border-radius:8px;font-size:16px">
 
@@ -1976,19 +1951,6 @@ HTML = r"""<!DOCTYPE html>
       <button class="img-prompt-btn" id="imgPromptBtn">🎨 画像生成プロンプトを作成</button>
       <button class="img-prompt-copy" id="imgPromptCopyBtn" style="display:none">📋 プロンプトをコピー</button>
       <div class="img-prompt-box" id="imgPromptBox"></div>
-    </div>
-  </div>
-
-  <div class="result-card" id="articleDraftCard">
-    <div class="tweet-label">キーワードから作ったX投稿文（編集可）</div>
-    <div class="article-draft-note">検索結果を使わない投稿文です。最新ニュースや固有の数値を扱う場合は、公開前に一次情報で確認してください。</div>
-    <div class="tweet-box" id="articleDraftBox" contenteditable="true" style="min-height:150px;white-space:pre-wrap"></div>
-    <div class="char-row" style="margin-top:10px">
-      <span class="char-count" id="articleDraftCharCount"></span>
-    </div>
-    <div class="action-row" style="margin-top:12px">
-      <button class="action-btn" id="articleDraftCopyBtn">📋 コピー</button>
-      <button class="action-btn x-btn" id="articleDraftXBtn">X で投稿</button>
     </div>
   </div>
 
@@ -2077,116 +2039,6 @@ function renderCats(){
 function renderLangs(){
   el('langGroup').innerHTML=[{k:'jp',l:'🇯🇵 国内'},{k:'en',l:'🌐 海外'}].map(l=>`<button onclick="setLang('${l.k}')" style="${pillStyle(activeLang===l.k)}">${l.l}</button>`).join('');
 }
-function renderAiKeywords(){
-  el('aiKeywordRow').innerHTML=AI_KEYWORDS.map(keyword=>`<button onclick="setAiKeyword('${keyword}')" style="font-size:12px;padding:5px 9px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#475569;cursor:pointer">${keyword}</button>`).join('');
-}
-function setAiKeyword(keyword){
-  el('keywordBox').value=keyword;
-  activeCat='AI・機械学習';
-  renderCats();
-  el('keywordBox').focus();
-}
-
-const X_POST_LENGTHS={
-  short:{min:80,max:120,label:'短め（80〜120字）'},
-  standard:{min:140,max:220,label:'標準・おすすめ（140〜220字）'},
-  detailed:{min:250,max:350,label:'詳しく（250〜350字）'},
-};
-const ARTICLE_AI_KEYWORDS=['Claude','ChatGPT','Gemini','AIエージェント','生成AIの業務活用','AIコーディング支援','AIセキュリティ','AIガバナンス'];
-let selectedArticleAiKeywords=[];
-function renderArticleAiKeywords(){
-  el('articleAiKeywordRow').innerHTML=ARTICLE_AI_KEYWORDS.map(keyword=>{
-    const selected=selectedArticleAiKeywords.includes(keyword);
-    const style=selected
-      ?'font-size:12px;padding:5px 9px;border:1px solid #c2410c;border-radius:999px;background:#ea580c;color:#fff;cursor:pointer'
-      :'font-size:12px;padding:5px 9px;border:1px solid #fdba74;border-radius:999px;background:#fff;color:#9a3412;cursor:pointer';
-    return `<button onclick="setArticleAiKeyword('${keyword}')" style="${style}">${selected?'✓ ':''}${keyword}</button>`;
-  }).join('');
-}
-function setArticleAiKeyword(keyword){
-  selectedArticleAiKeywords=selectedArticleAiKeywords.includes(keyword)
-    ?selectedArticleAiKeywords.filter(item=>item!==keyword)
-    :[...selectedArticleAiKeywords,keyword];
-  renderArticleAiKeywords();
-}
-function getArticleKeywords(){
-  const freeKeywords=el('articleKeyword').value
-    .split(/[、,，\n]+/)
-    .map(keyword=>keyword.trim())
-    .filter(Boolean);
-  return [...new Set([...selectedArticleAiKeywords,...freeKeywords])];
-}
-function articleTextLength(text){return Array.from(String(text||'').replace(/\s/g,'')).length;}
-function updateArticleDraftChar(){
-  const setting=X_POST_LENGTHS[el('articleLength').value]||X_POST_LENGTHS.standard;
-  const text=el('articleDraftBox').innerText;
-  const chars=articleTextLength(text);
-  const weighted=xWeightedLen(text);
-  el('articleDraftCharCount').textContent=`${chars}字 / 目安 ${setting.min}〜${setting.max}字（Xカウント ${weighted}）`;
-  el('articleDraftCharCount').className='char-count'+(chars>setting.max?' warn':'');
-}
-
-el('articleGenerateBtn').onclick=async()=>{
-  const keywords=getArticleKeywords();
-  if(!keywords.length){
-    showError('AIテーマを1つ以上選ぶか、キーワードを入力してください');
-    el('articleKeyword').focus();
-    return;
-  }
-  const audience=el('articleAudience').value;
-  const lengthSetting=X_POST_LENGTHS[el('articleLength').value]||X_POST_LENGTHS.standard;
-  const instruction=el('articleInstruction').value.trim().slice(0,800);
-  const button=el('articleGenerateBtn');
-  button.disabled=true;
-  button.innerHTML='<div class="spinner"></div>投稿文を生成中...';
-  setStatus(true,'キーワードからX投稿文を作成中...');
-  try{
-    const data=await callProxy([{role:'user',content:`あなたは日本語のAI・IT分野に詳しいSNS編集者です。以下の指定だけを使い、Xに投稿する日本語の本文を作成してください。
-
-【組み合わせテーマ】
-${keywords.map(keyword=>`- ${keyword}`).join('\n')}
-
-上記のテーマをばらばらに紹介せず、共通する課題・活用場面・違いなど、1つの筋の通った切り口で結び付けること。
-
-【想定読者】
-${audience}
-
-【目安の長さ】
-${lengthSetting.min}〜${lengthSetting.max}字（本文の文字数。URLとハッシュタグは含めない）
-
-【追加指示】
-${instruction||'なし'}
-
-【構成】
-- 1文目でテーマの価値や意外性を具体的に伝える
-- 2〜5文程度で、読者が「何を理解し、次に何をすればよいか」が分かる実用的な内容にする
-- 1〜2文ごとに改行し、スマートフォンで読みやすくする
-
-【正確さのルール】
-- この依頼には検索結果や一次情報が渡されていない。直近の発表、現在の製品仕様、価格、利用者数、調査結果、日付、固有の数値を事実として書かない
-- 「最新」「現在」「先日発表」など、鮮度を示す表現を使わない
-- 一般的に説明できる内容に限定し、不確かな内容は「確認が必要」「場合がある」と明示する
-- 存在しない機能・事例・引用・出典を作らない
-- ハッシュタグ、URL、見出し、Markdown、前置き、生成に関する説明は不要。完成した投稿本文のみ返す`}]);
-    let draft=data.text.trim();
-    if(!draft)throw new Error('投稿文を作成できませんでした');
-    if(articleTextLength(draft)>lengthSetting.max){
-      const shortened=await callProxy([{role:'user',content:`次のX投稿本文を、事実関係と主旨を変えずに${lengthSetting.min}〜${lengthSetting.max}字へ短縮してください。URL、ハッシュタグ、見出し、前置きは不要です。投稿本文だけを返してください。\n\n${draft}`}]);
-      if(shortened.text.trim())draft=shortened.text.trim();
-    }
-    el('articleDraftBox').innerText=draft;
-    updateArticleDraftChar();
-    el('articleDraftCard').style.display='block';
-    el('articleDraftCard').scrollIntoView({behavior:'smooth',block:'start'});
-  }catch(e){
-    showError('記事生成に失敗: '+e.message);
-  }finally{
-    setStatus(false);
-    button.disabled=false;
-    button.textContent='✍️ X投稿文を生成';
-  }
-};
-el('articleDraftBox').oninput=updateArticleDraftChar;
 function renderOpinionStyles(){
   const includeOpinion=el('includeOpinion')&&el('includeOpinion').checked;
   el('opinionStyleRow').style.display=includeOpinion?'flex':'none';
@@ -2859,19 +2711,6 @@ el('copyBtn').onclick=async()=>{
   }catch{showError('コピーに失敗');}
 };
 
-el('articleDraftCopyBtn').onclick=async()=>{
-  try{
-    await navigator.clipboard.writeText(el('articleDraftBox').innerText);
-    el('articleDraftCopyBtn').textContent='✓ コピー済';
-    setTimeout(()=>el('articleDraftCopyBtn').textContent='📋 コピー',1500);
-  }catch(e){showError('コピーに失敗しました');}
-};
-el('articleDraftXBtn').onclick=()=>{
-  const draft=el('articleDraftBox').innerText.trim();
-  if(!draft)return;
-  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(draft)}`,'_blank');
-};
-
 const POST_HISTORY_KEY='it_post_history_v1';
 function todayKeyJST(){
   // サーバー側の「今日」判定と同じくJSTの日付で揃える
@@ -2910,7 +2749,7 @@ function loadHistory(i){
   el('resultCard').style.display='block';
 }
 
-renderCats();renderLangs();renderArticleAiKeywords();loadPostHistory();loadCandidateHistory();
+renderCats();renderLangs();loadPostHistory();loadCandidateHistory();
 </script>
 </body>
 </html>

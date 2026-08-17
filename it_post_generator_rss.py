@@ -2761,6 +2761,41 @@ el('backBtn').onclick=()=>{
   updateStickyBar();
 };
 
+// 【画像プロンプトのテンプレート分岐】記事内容に関わらず常に同じ「マスコットロボット＋矢印」の
+// 構図だと、毎日投稿するうちに画像が代わり映えせず見飽きられる。記事の性質に応じて3種類の
+// 構図から選ぶことで見た目のバリエーションを出す。
+const IMG_BASE_SPEC='Create a 16:9 horizontal image optimized for an X/Twitter single-image attachment, 1200x675 composition. Keep important elements inside a central safe area with generous margins. Use large simple icons and a clear visual hierarchy.';
+const IMG_FOOTER='No photorealistic humans, celebrities, or brand logos.\n\nAIで生成したとわからないようにして';
+
+function buildComparisonImagePrompt(parsed){
+  // 比較・変化型（Before/After、旧→新、課題→解決など、明確な流れがある記事向け）
+  const sections=(parsed.sections||[]);
+  const sectionDesc=sections.map((s,i)=>`section ${i+1} showing ${s.visual_en}, with a Japanese text label reading "${s.label_ja}"`).join(', then connected by a simple arrow to ');
+  return `${IMG_BASE_SPEC} A cute, colorful flat-illustration infographic in a hand-drawn Japanese explainer style, with a cheerful mascot robot character. Large bold Japanese title text overlay at the top reading "${parsed.title_ja}". The image is divided into ${sections.length} horizontal sections read left to right: ${sectionDesc}. Bright color palette, sparkle and star decorations, clean vector-style icons, educational social-media infographic aesthetic, clean sans-serif Japanese typography. ${IMG_FOOTER}`;
+}
+
+function buildStatImagePrompt(parsed){
+  // 数値インパクト型（記事の中心が明確な数字・統計である場合向け）
+  return `${IMG_BASE_SPEC} A bold, high-impact stat-card design for social media, minimal and uncluttered. A single giant number dominates the center of the composition, rendered in extra-bold numerals reading "${parsed.stat_value}". Below it, a short Japanese label in clean bold sans-serif reading "${parsed.stat_label_ja}". A smaller Japanese title overlay near the top reading "${parsed.title_ja}". One simple, large icon or illustration representing ${parsed.stat_context_en}, placed to balance the composition without crowding the number. Strong color contrast (one dominant accent color plus a neutral background), flat modern design, generous whitespace, no clutter, no small decorative elements. ${IMG_FOOTER}`;
+}
+
+function buildAnnouncementImagePrompt(parsed){
+  // 発表・アップデート型（比較や強調数値のない、シンプルなお知らせ系の記事向け）
+  return `${IMG_BASE_SPEC} A calm, editorial-style announcement card for a tech news account, closer to a clean product-update graphic than a cute illustration. A short Japanese headline in bold sans-serif near the top reading "${parsed.title_ja}". Below it, a supporting line of Japanese text in a lighter weight reading "${parsed.body_ja}". One simple, modern flat icon or illustration representing ${parsed.visual_en}, placed off to one side. Muted, professional color palette (soft neutral background with a single accent color), plenty of whitespace, minimal decoration, no sparkles or cartoon mascots. ${IMG_FOOTER}`;
+}
+
+function buildImagePromptFromParsed(parsed){
+  const template=parsed.template;
+  if(template==='stat' && parsed.stat_value && parsed.stat_label_ja){
+    return buildStatImagePrompt(parsed);
+  }
+  if(template==='announcement' && parsed.body_ja){
+    return buildAnnouncementImagePrompt(parsed);
+  }
+  // comparison、またはtemplateが不明・必要フィールド欠落時のフォールバック
+  return buildComparisonImagePrompt(parsed);
+}
+
 el('imgPromptBtn').onclick=async()=>{
   if(!lastArticle)return;
   el('imgPromptBtn').disabled=true;
@@ -2771,32 +2806,41 @@ el('imgPromptBtn').onclick=async()=>{
     // 記事後半にある「変化・結論」を見落とし、typicalなBefore/After構成しか
     // 作れないことがあった。
     const source=lastArticleBody || lastArticle.summary || lastArticle.title;
-    const data=await callProxy([{role:'user',content:`以下のIT記事を、日本語の解説インフォグラフィック画像にするための構成要素を考えてください。SNSでよく見る「わかりやすい図解」投稿のような、見出し＋複数ステップ＋マスコットキャラクターのイラストを想定します。
+    const data=await callProxy([{role:'user',content:`以下のIT記事を、日本語のSNS投稿用インフォグラフィック画像にするための構成要素を考えてください。
 
 記事タイトル: ${lastArticle.title}
 内容: ${source}
 
+【最初にやること: 構図テンプレートを1つ選ぶ】
+記事の内容を読み、以下3種類のうち最も合うものを1つ選んでtemplateフィールドに入れる。
+- "comparison": Before/After・旧方式→新方式・課題→解決策など、明確な変化や比較の流れがある記事
+- "stat": 「〇〇%削減」「〇倍高速化」「利用者〇〇万人突破」のような、インパクトのある具体的な数値が記事の中心的な話題である記事
+- "announcement": 上記どちらにも当てはまらない、単純な新機能・サービスの発表やアップデート告知
+
 【最重要: 記事内容を正確に反映する】
-- title_ja・sectionsはすべて上記の記事本文（またはRSS概要）に実際に書かれている内容を根拠にする。タイトルからの推測や、記事に書かれていない一般的なAI/IT論で埋めない
-- sectionsは記事中の具体的な流れ・変化・比較を反映すること（例: 記事に書かれている「Before→After」「旧方式→新方式」「課題→解決策」など、実際の内容に沿った展開にする。テンプレート的な「今までのAI→新しいAI」のような使い回しにしない）
-- label_jaには記事中の固有名詞・製品名・数値などを可能な範囲で使う
+- すべてのフィールドは上記の記事本文（またはRSS概要）に実際に書かれている内容を根拠にする。タイトルからの推測や、記事に書かれていない一般的なAI/IT論で埋めない
+- 固有名詞・製品名・数値などを可能な範囲で使う
+- comparisonを選んだ場合、sectionsはテンプレート的な「今までのAI→新しいAI」のような使い回しにせず、記事に実際に書かれている展開にする
 
 出力ルール:
 - JSON形式のみで回答する。説明や前置き、Markdownのコードブロックは一切不要
-- 形式: {"title_ja": "文字列", "sections": [{"label_ja": "文字列", "visual_en": "文字列"}, ...]}
-- title_ja: 画像上部に大きく表示する見出し。記事の要点を興味を引く一言でまとめた日本語（15〜25文字程度。例: "フィジカルAIってなに？「頭脳」から「身体」をもつ進化！"）
-- sections: 記事の内容を2〜4個の流れ・比較・要素に分解したもの。それぞれ:
+- 形式: {"template": "comparison"|"stat"|"announcement", "title_ja": "文字列", "sections": [...], "stat_value": "文字列", "stat_label_ja": "文字列", "stat_context_en": "文字列", "body_ja": "文字列", "visual_en": "文字列"}
+- title_ja（共通・必須）: 画像に表示する見出し。記事の要点を興味を引く一言でまとめた日本語（15〜25文字程度。例: "フィジカルAIってなに？「頭脳」から「身体」をもつ進化！"）
+- template="comparison"の場合のみ、sectionsを記事の内容を2〜4個の流れ・比較・要素に分解したもので埋める。それぞれ:
   - label_ja: そのステップ・要素を表す短い日本語ラベル（4〜10文字。例: "今までのAI"）
-  - visual_en: そのステップを視覚的に表すイラスト要素の英語説明（アイコンやマスコットロボットの動作など、具体的に）
-- 全体として左から右へ読み進められる構成にする（記事の実際の展開に沿ったBefore/After・比較・変化のステップなど）`}], true);
+  - visual_en: そのステップを視覚的に表すイラスト要素の英語説明（具体的に）
+- template="stat"の場合のみ、以下を埋める:
+  - stat_value: 画像の主役になる数値そのもの（例: "40%削減" "3倍" "100万人突破"）
+  - stat_label_ja: その数値が何を表すかの短い日本語ラベル（8〜16文字程度）
+  - stat_context_en: 数値を象徴する簡単なイラスト要素の英語説明
+- template="announcement"の場合のみ、以下を埋める:
+  - body_ja: 発表内容を1文で説明する日本語（20〜35文字程度）
+  - visual_en: 添えるイラスト要素の英語説明
+- 選ばなかったtemplate用のフィールドは省略してよい`}], true);
     let parsed;
     try{ parsed = JSON.parse(data.text.trim().replace(/^```(?:json)?\s*|\s*```$/g,'')); }
     catch(e){ throw new Error('プロンプトの解析に失敗しました'); }
-    const sections=(parsed.sections||[]);
-    const sectionDesc=sections.map((s,i)=>`section ${i+1} showing ${s.visual_en}, with a Japanese text label reading "${s.label_ja}"`).join(', then connected by a simple arrow to ');
-    const finalPrompt = `Create a 16:9 horizontal image optimized for an X/Twitter single-image attachment, 1200x675 composition. Keep important elements inside a central safe area with generous margins. Use large simple icons and a clear visual hierarchy. A cute, colorful flat-illustration infographic in a hand-drawn Japanese explainer style, with a cheerful mascot robot character. Large bold Japanese title text overlay at the top reading "${parsed.title_ja}". The image is divided into ${sections.length} horizontal sections read left to right: ${sectionDesc}. Bright color palette, sparkle and star decorations, clean vector-style icons, educational social-media infographic aesthetic, clean sans-serif Japanese typography. No photorealistic humans, celebrities, or brand logos.
-
-AIで生成したとわからないようにして`;
+    const finalPrompt=buildImagePromptFromParsed(parsed);
     el('imgPromptBox').textContent=finalPrompt;
     el('imgPromptBox').style.display='block';
     el('imgPromptCopyBtn').style.display='inline-block';

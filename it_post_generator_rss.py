@@ -2683,6 +2683,7 @@ el('imgPromptBtn').onclick=async()=>{
     const sections=(parsed.sections||[]);
     const sectionDesc=sections.map((s,i)=>`section ${i+1} showing ${s.visual_en}, with a Japanese text label reading "${s.label_ja}"`).join(', then connected by a simple arrow to ');
     const finalPrompt = `Create a 16:9 horizontal image optimized for an X/Twitter single-image attachment, 1200x675 composition. Keep important elements inside a central safe area with generous margins. Use large simple icons and a clear visual hierarchy. A cute, colorful flat-illustration infographic in a hand-drawn Japanese explainer style, with a cheerful mascot robot character. Large bold Japanese title text overlay at the top reading "${parsed.title_ja}". The image is divided into ${sections.length} horizontal sections read left to right: ${sectionDesc}. Bright color palette, sparkle and star decorations, clean vector-style icons, educational social-media infographic aesthetic, clean sans-serif Japanese typography. No photorealistic humans, celebrities, or brand logos.
+
 AIで生成したとわからないようにして`;
     el('imgPromptBox').textContent=finalPrompt;
     el('imgPromptBox').style.display='block';

@@ -1848,7 +1848,7 @@ HTML = r"""<!DOCTYPE html>
   .action-btn:hover { background: #f5f5f5; }
   .reply-url-row { display: none; margin-top: 12px; padding: 10px 12px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; }
   .reply-url-label { font-size: 11.5px; color: #0369a1; margin-bottom: 6px; line-height: 1.5; }
-  .reply-url-value { font-size: 12.5px; color: #444; word-break: break-all; margin-bottom: 8px; }
+  .reply-url-value { font-size: 12.5px; color: #444; white-space: pre-wrap; word-break: break-all; margin-bottom: 8px; }
   .copy-url-btn { font-size: 12px; padding: 5px 11px; border-radius: 8px; border: 1px solid #7dd3fc; color: #0369a1; background: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
   .copy-url-btn:hover { background: #e0f2fe; }
   .img-prompt-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid #eee; }
@@ -1953,9 +1953,9 @@ HTML = r"""<!DOCTYPE html>
       <button class="action-btn x-btn" id="xBtn">X で投稿</button>
     </div>
     <div class="reply-url-row" id="replyUrlRow">
-      <div class="reply-url-label">🔗 本文にはリンクを含めていません。投稿後、自分のツイートにリプライでこのURLを貼ってください（リンクを本文に入れるとリーチが下がりやすいため）</div>
+      <div class="reply-url-label">🔗 本文にはリンクを含めていません。投稿後、自分のツイートにリプライで下記を貼ってください（リンクを本文に入れるとリーチが下がりやすいため）</div>
       <div class="reply-url-value" id="replyUrlValue"></div>
-      <button class="copy-url-btn" id="copyUrlBtn">📋 リプライ用URLをコピー</button>
+      <button class="copy-url-btn" id="copyUrlBtn">📋 リプライ文をコピー</button>
     </div>
     <div class="img-prompt-section">
       <button class="img-prompt-btn" id="imgPromptBtn">🎨 画像生成プロンプトを作成</button>
@@ -2226,6 +2226,11 @@ el('tweetBox').oninput=updateChar;
 function shareArticleUrl(article){
   if(!article.url)return '';
   return article.url;
+}
+
+function buildReplyText(url){
+  if(!url)return '';
+  return `元記事はこちら👇\n${url}`;
 }
 
 function escapeHtml(value){
@@ -2620,7 +2625,7 @@ ${body}`}]);
     el('tweetBox').innerText=tweet;
     updateChar();
     if(shareUrl){
-      el('replyUrlValue').textContent=shareUrl;
+      el('replyUrlValue').textContent=buildReplyText(shareUrl);
       el('replyUrlRow').style.display='block';
     }else{
       el('replyUrlRow').style.display='none';
@@ -2636,7 +2641,7 @@ ${body}`}]);
     el('xBtn').onclick=async()=>{
       // 本体ツイートはURLなしで開く。リプライで貼れるよう、押した時点でURLをクリップボードにコピーしておく
       if(shareUrl){
-        try{ await navigator.clipboard.writeText(shareUrl); }catch(e){ console.warn('URLコピー失敗',e); }
+        try{ await navigator.clipboard.writeText(buildReplyText(shareUrl)); }catch(e){ console.warn('URLコピー失敗',e); }
       }
       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(el('tweetBox').innerText)}`,'_blank');
       markPosted(article,el('tweetBox').innerText);

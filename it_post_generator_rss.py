@@ -1846,6 +1846,11 @@ HTML = r"""<!DOCTYPE html>
   .action-row { display: flex; gap: 10px; flex-wrap: wrap; }
   .action-btn { font-size: 13px; padding: 9px 16px; border-radius: 8px; border: 1px solid #ddd; cursor: pointer; display: flex; align-items: center; gap: 6px; background: #fff; color: #1a1a1a; transition: all .15s; }
   .action-btn:hover { background: #f5f5f5; }
+  .reply-url-row { display: none; margin-top: 12px; padding: 10px 12px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; }
+  .reply-url-label { font-size: 11.5px; color: #0369a1; margin-bottom: 6px; line-height: 1.5; }
+  .reply-url-value { font-size: 12.5px; color: #444; word-break: break-all; margin-bottom: 8px; }
+  .copy-url-btn { font-size: 12px; padding: 5px 11px; border-radius: 8px; border: 1px solid #7dd3fc; color: #0369a1; background: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  .copy-url-btn:hover { background: #e0f2fe; }
   .img-prompt-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid #eee; }
   .img-prompt-btn { font-size: 12px; padding: 7px 12px; border-radius: 8px; border: 1px solid #bfdbfe; color: #2563eb; background: #eff6ff; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
   .img-prompt-btn:hover { background: #dbeafe; }
@@ -1946,6 +1951,11 @@ HTML = r"""<!DOCTYPE html>
       <button class="action-btn" id="backBtn">← 選び直す</button>
       <button class="action-btn" id="copyBtn">📋 コピー</button>
       <button class="action-btn x-btn" id="xBtn">X で投稿</button>
+    </div>
+    <div class="reply-url-row" id="replyUrlRow">
+      <div class="reply-url-label">🔗 本文にはリンクを含めていません。投稿後、自分のツイートにリプライでこのURLを貼ってください（リンクを本文に入れるとリーチが下がりやすいため）</div>
+      <div class="reply-url-value" id="replyUrlValue"></div>
+      <button class="copy-url-btn" id="copyUrlBtn">📋 リプライ用URLをコピー</button>
     </div>
     <div class="img-prompt-section">
       <button class="img-prompt-btn" id="imgPromptBtn">🎨 画像生成プロンプトを作成</button>
@@ -2552,12 +2562,11 @@ ${contextText}
 - ハッシュタグ・URLは不要${angleOutlineInstruction}`;
     const data=await callProxy([{role:'user',content:mainPrompt}]);
 
-    // 本文 + URL を組み立て（ハッシュタグなし）
+    // 本体ツイートはURLなしで完結させる（外部リンクを含む投稿はXのアルゴリズム上リーチが
+    // 下がりやすいと言われているため、URLは投稿後に自分でリプライして貼る運用にする）
     const calcLen=(t)=>{const u=t.match(/https?:\/\/[^\s]+/g)||[];return xWeightedLen(t.replace(/https?:\/\/[^\s]+/g,''))+u.length*23;};
     let body = data.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-    const urls=shareUrl?[shareUrl]:[];
-    const urlStr=shareUrl?'\n'+shareUrl:'';
-    let tweet = body + urlStr;
+    let tweet = body;
 
     // 短すぎる場合は、上限に収まる範囲で本文だけを一度だけ膨らませる
     const expandThreshold=600;
@@ -2577,24 +2586,24 @@ ${contextText}
 現在の本文:
 ${body}`}]);
         const expandedBody=expanded.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-        if(expandedBody && calcLen(expandedBody + urlStr) <= POST_CHAR_LIMIT){
+        if(expandedBody && calcLen(expandedBody) <= POST_CHAR_LIMIT){
           body = expandedBody;
-          tweet = body + urlStr;
+          tweet = body;
         }
       }catch(e){ console.warn('本文拡張失敗',e); }
     }
 
-    // Step2: それでもオーバーなら Claude で本文を自動短縮
+    // Step2: それでもオーバーなら Claude で本文を自動短縮（本体ツイートにURLは含まないため、
+    // 短縮先の上限は本文のみでPOST_CHAR_LIMIT）
     if(calcLen(tweet)>POST_CHAR_LIMIT){
       setStatus(true,'文字数オーバー。本文を自動短縮中...');
       try{
         const over=calcLen(tweet);
-        const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。URLは変えずに本文だけを短くしてください。
-文字数ルール: 日本語1文字=2カウント、英数字=1カウント、URL=23カウント固定、合計${POST_CHAR_LIMIT}以内。
-URL: ${urls.join(', ')||'なし'}
+        const shortened=await callProxy([{role:'user',content:`以下のX投稿本文が長すぎます（現在${over}カウント）。本文だけを短くしてください。
+文字数ルール: 日本語1文字=2カウント、英数字=1カウント、合計${POST_CHAR_LIMIT}以内。
 本文のみ回答してください。\n\n${body}`}]);
         const newBody=shortened.text.trim().replace(/【速報】\s*/g,'').replace(/速報[：:]\s*/g,'').replace(/速報\s/g,'');
-        tweet = newBody + urlStr;
+        tweet = newBody;
       }catch(e){ console.warn('自動短縮失敗',e); }
     }
     lastArticle=article;
@@ -2610,6 +2619,12 @@ URL: ${urls.join(', ')||'なし'}
     el('angleOutlineBox').style.display='block';
     el('tweetBox').innerText=tweet;
     updateChar();
+    if(shareUrl){
+      el('replyUrlValue').textContent=shareUrl;
+      el('replyUrlRow').style.display='block';
+    }else{
+      el('replyUrlRow').style.display='none';
+    }
     setStatus(false);
     el('selectBtn').disabled=false;
     el('selectBtn').textContent='✏️ 投稿文を生成';
@@ -2618,7 +2633,11 @@ URL: ${urls.join(', ')||'なし'}
     el('stickyBar').style.display='none';
     document.body.classList.remove('has-sticky');
     el('resultCard').style.display='block';
-    el('xBtn').onclick=()=>{
+    el('xBtn').onclick=async()=>{
+      // 本体ツイートはURLなしで開く。リプライで貼れるよう、押した時点でURLをクリップボードにコピーしておく
+      if(shareUrl){
+        try{ await navigator.clipboard.writeText(shareUrl); }catch(e){ console.warn('URLコピー失敗',e); }
+      }
       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(el('tweetBox').innerText)}`,'_blank');
       markPosted(article,el('tweetBox').innerText);
     };
@@ -2713,6 +2732,15 @@ el('copyBtn').onclick=async()=>{
   }catch{showError('コピーに失敗');}
 };
 
+el('copyUrlBtn').onclick=async()=>{
+  try{
+    await navigator.clipboard.writeText(el('replyUrlValue').textContent);
+    const orig=el('copyUrlBtn').textContent;
+    el('copyUrlBtn').textContent='✓ コピー済';
+    setTimeout(()=>el('copyUrlBtn').textContent=orig,1500);
+  }catch{showError('URLのコピーに失敗');}
+};
+
 const POST_HISTORY_KEY='it_post_history_v1';
 function todayKeyJST(){
   // サーバー側の「今日」判定と同じくJSTの日付で揃える
@@ -2748,6 +2776,7 @@ function loadPostHistory(){
 }
 function loadHistory(i){
   const h=postHistory[i];el('tweetBox').innerText=h.tweet;updateChar();
+  el('replyUrlRow').style.display='none'; // 履歴にはリプライ用URLを保存していないため非表示にする
   el('resultCard').style.display='block';
 }
 

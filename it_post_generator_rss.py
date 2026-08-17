@@ -1851,6 +1851,12 @@ HTML = r"""<!DOCTYPE html>
   .reply-url-value { font-size: 12.5px; color: #444; white-space: pre-wrap; word-break: break-all; margin-bottom: 8px; }
   .copy-url-btn { font-size: 12px; padding: 5px 11px; border-radius: 8px; border: 1px solid #7dd3fc; color: #0369a1; background: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
   .copy-url-btn:hover { background: #e0f2fe; }
+  .reply-targets-section { display: none; margin-top: 12px; padding: 10px 12px; background: #fefce8; border: 1px solid #fde68a; border-radius: 8px; }
+  .reply-targets-label { font-size: 11.5px; color: #92400e; margin-bottom: 8px; line-height: 1.5; }
+  .reply-targets-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .reply-target-btn { font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1px solid #fbbf24; color: #92400e; background: #fff; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+  .reply-target-btn:hover { background: #fef3c7; }
+  .reply-target-search { border-color: #f59e0b; background: #fff7ed; }
   .img-prompt-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid #eee; }
   .img-prompt-btn { font-size: 12px; padding: 7px 12px; border-radius: 8px; border: 1px solid #bfdbfe; color: #2563eb; background: #eff6ff; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
   .img-prompt-btn:hover { background: #dbeafe; }
@@ -1865,6 +1871,22 @@ HTML = r"""<!DOCTYPE html>
   .hi-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hi-time { font-size: 11px; color: #bbb; flex-shrink: 0; }
   .rss-badge { font-size: 10px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; border-radius: 100px; padding: 2px 8px; display: inline-block; line-height: 1.35; }
+  .metrics-section { margin-top: 1.75rem; border-top: 1px solid #e5e5e5; padding-top: 1.25rem; display: none; }
+  .metrics-hint { font-size: 12px; color: #999; margin: -4px 0 12px; line-height: 1.5; }
+  .metrics-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+  .metrics-item-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+  .metrics-item-title { font-size: 12.5px; color: #333; }
+  .metrics-item-meta { font-size: 11px; color: #aaa; }
+  .metrics-item-inputs { display: flex; gap: 12px; }
+  .metrics-item-inputs label { font-size: 11px; color: #888; display: flex; align-items: center; gap: 4px; }
+  .metrics-item-inputs input { width: 70px; font-size: 12px; padding: 4px 6px; border: 1px solid #ddd; border-radius: 6px; }
+  .metrics-summary { margin-top: 14px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .metrics-summary-block { flex: 1; min-width: 220px; }
+  .metrics-summary-label { font-size: 11px; font-weight: 600; color: #888; margin-bottom: 6px; }
+  .metrics-empty { font-size: 12px; color: #bbb; }
+  .metrics-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .metrics-table td { padding: 4px 6px; border-bottom: 1px solid #f5f5f5; color: #555; }
+  .metrics-table td:first-child { color: #1a1a1a; font-weight: 500; }
   @media (max-width: 420px) {
     h1 { font-size: 19px; }
     .app-header { align-items: flex-start; }
@@ -1919,6 +1941,10 @@ HTML = r"""<!DOCTYPE html>
       </label>
     </div>
     <div id="opinionStyleRow" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f0f0f0">
+      <span class="section-label" style="margin:0 0 8px;display:block">投稿の長さ</span>
+      <div id="postLengthRow" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    </div>
   </div>
 
   <div id="candidatesSection" style="display:none;margin-bottom:1.25rem">
@@ -1957,6 +1983,10 @@ HTML = r"""<!DOCTYPE html>
       <div class="reply-url-value" id="replyUrlValue"></div>
       <button class="copy-url-btn" id="copyUrlBtn">📋 リプライ文をコピー</button>
     </div>
+    <div class="reply-targets-section" id="replyTargetsSection">
+      <div class="reply-targets-label">💬 投稿するだけでなく、これらの投稿にリプライして反応するとフォロワーが増えやすくなります</div>
+      <div class="reply-targets-row" id="replyTargetsRow"></div>
+    </div>
     <div class="img-prompt-section">
       <button class="img-prompt-btn" id="imgPromptBtn">🎨 画像生成プロンプトを作成</button>
       <button class="img-prompt-copy" id="imgPromptCopyBtn" style="display:none">📋 プロンプトをコピー</button>
@@ -1968,10 +1998,29 @@ HTML = r"""<!DOCTYPE html>
     <div class="section-label">今日の投稿履歴</div>
     <div id="historyList"></div>
   </div>
+
+  <div class="metrics-section" id="metricsSection">
+    <div class="section-label">📈 投稿の効果を記録</div>
+    <div class="metrics-hint">投稿の下に表示される表示回数・いいね数を後から入力すると、感想スタイル別／カテゴリ別の平均が下に出ます（日をまたいでも記録は残ります）</div>
+    <div id="metricsList"></div>
+    <div class="metrics-summary" id="metricsSummary"></div>
+  </div>
 </div>
 
 <script>
 const CATS=['AI・機械学習','クラウド・AWS','セキュリティ','開発','スタートアップ','便利ツール・Tips','ガジェット・ハードウェア','ビジネス・DX'];
+
+// サーバー側のOFFICIAL_X_ACCOUNTSと同じ内容（リプライ先候補の表示用に複製）
+const OFFICIAL_X_ACCOUNTS={
+  'AI・機械学習':[{handle:'OpenAI',name:'OpenAI'},{handle:'AnthropicAI',name:'Anthropic'},{handle:'GoogleDeepMind',name:'Google DeepMind'}],
+  'クラウド・AWS':[{handle:'awscloud',name:'AWS'},{handle:'Azure',name:'Microsoft Azure'},{handle:'googlecloud',name:'Google Cloud'}],
+  'セキュリティ':[{handle:'msftsecintel',name:'Microsoft Threat Intelligence'},{handle:'CISAgov',name:'CISA'},{handle:'TheHackersNews',name:'The Hacker News'}],
+  '開発':[{handle:'github',name:'GitHub'},{handle:'vercel',name:'Vercel'},{handle:'nodejs',name:'Node.js'}],
+  'スタートアップ':[{handle:'ycombinator',name:'Y Combinator'},{handle:'stripe',name:'Stripe'},{handle:'supabase',name:'Supabase'}],
+  '便利ツール・Tips':[{handle:'ProductHunt',name:'Product Hunt'},{handle:'raycastapp',name:'Raycast'},{handle:'obsdmd',name:'Obsidian'}],
+  'ガジェット・ハードウェア':[{handle:'verge',name:'The Verge'},{handle:'engadget',name:'Engadget'}],
+  'ビジネス・DX':[{handle:'Forbes',name:'Forbes'},{handle:'MicrosoftTeams',name:'Microsoft Teams'}],
+};
 
 const OPINION_STYLES=[
   {k:'impression', l:'💬 一言感想', desc:'「個人的にここが面白い」「これは要注目」など短く添える'},
@@ -1980,6 +2029,14 @@ const OPINION_STYLES=[
   {k:'concern',    l:'⚠️ 懸念・考察', desc:'「一方でこんなリスクも」「まだ課題はあるが」など深掘り'},
 ];
 let activeOpinionStyle='practical';
+
+// フォロワーの少ない段階では長文が「さらに表示」に折りたたまれて最後まで読まれにくいという
+// 見方があるため、長文一択をやめて短文モードを選べるようにする（Bの効果測定と組み合わせて比較する想定）
+const POST_LENGTHS=[
+  {k:'long',  l:'📝 長文（350〜500字）', targetLenText:'日本語350〜500文字程度', shortMinChars:150, expandThreshold:600},
+  {k:'short', l:'⚡ 短文（120〜180字）', targetLenText:'日本語120〜180文字程度', shortMinChars:60,  expandThreshold:null},
+];
+let activePostLength='long';
 let activeCat='AI・機械学習', activeLang='en';
 const INITIAL_VISIBLE_COUNT=20;
 let candidates=[], selectedIdx=-1, postHistory=[], visibleCount=INITIAL_VISIBLE_COUNT;
@@ -2055,6 +2112,11 @@ function renderOpinionStyles(){
   el('opinionStyleRow').innerHTML=OPINION_STYLES.map(s=>`<button onclick="setOpinionStyle('${s.k}')" title="${s.desc}" style="${pillStyle(activeOpinionStyle===s.k)}">${s.l}</button>`).join('');
 }
 function setOpinionStyle(k){activeOpinionStyle=k;renderOpinionStyles();}
+
+function renderPostLengths(){
+  el('postLengthRow').innerHTML=POST_LENGTHS.map(p=>`<button onclick="setPostLength('${p.k}')" style="${pillStyle(activePostLength===p.k)}">${p.l}</button>`).join('');
+}
+function setPostLength(k){activePostLength=k;renderPostLengths();}
 
 document.addEventListener('change',e=>{if(e.target.id==='includeOpinion')renderOpinionStyles();});
 
@@ -2231,6 +2293,27 @@ function shareArticleUrl(article){
 function buildReplyText(url){
   if(!url)return '';
   return `元記事はこちら👇\n${url}`;
+}
+
+// フォロワー増加は自分の投稿だけでなく他人のリプライ欄での露出が大きく効くと言われているため、
+// 同じ話題を扱う公式Xアカウント／X検索へのリンクを提示し、投稿後にリプライへ回れるようにする
+function renderReplyTargets(article){
+  const accounts=OFFICIAL_X_ACCOUNTS[activeCat]||[];
+  const links=accounts.map(a=>
+    `<a class="reply-target-btn" href="https://x.com/${encodeURIComponent(a.handle)}" target="_blank" rel="noopener">@${escapeHtml(a.handle)}</a>`
+  );
+  const keyword=(article.title||'').trim().slice(0,60);
+  if(keyword){
+    links.push(
+      `<a class="reply-target-btn reply-target-search" href="https://x.com/search?q=${encodeURIComponent(keyword)}&f=live" target="_blank" rel="noopener">🔍 同じ話題の投稿を検索</a>`
+    );
+  }
+  if(links.length){
+    el('replyTargetsRow').innerHTML=links.join('');
+    el('replyTargetsSection').style.display='block';
+  }else{
+    el('replyTargetsSection').style.display='none';
+  }
 }
 
 function escapeHtml(value){
@@ -2427,6 +2510,7 @@ el('generateBtn').onclick=async()=>{
     el('candidatesSection').style.display='block';
     el('opinionPanel').style.display='none';
     renderOpinionStyles();
+    renderPostLengths();
     renderCands();
     translateCandidatesInBackground();
   }catch(e){
@@ -2526,8 +2610,9 @@ ${contextText}${coverageNote}
     };
     const opinionInstruction=includeOpinion
       ? `\n\n【構成（厳守）】\n投稿は必ず2部構成にする。\n1. 前半: 記事の具体的な内容（事実・数値・固有名詞）を客観的に説明する\n2. 後半: 前半の内容を踏まえて視点を切り替え、下記スタイルの内容を書く\nスタイル: ${opinionStyleMap[activeOpinionStyle]||opinionStyleMap.practical}\n- 前半と後半が地続きにならないよう、視点の切り替わりが読者にわかる書き方にする\n- 「実務目線では、」「〇〇目線では、」のような定型ラベル表現は本文に書かない。文章の内容・トーンの変化だけで視点の転換を示すこと\n- 「興味深いです」「注目です」のような抽象的な締めだけは禁止` : '';
-    const targetLenText='日本語350〜500文字程度';
-    const shortMinChars=150;
+    const lengthConfig=POST_LENGTHS.find(p=>p.k===activePostLength)||POST_LENGTHS[0];
+    const targetLenText=lengthConfig.targetLenText;
+    const shortMinChars=lengthConfig.shortMinChars;
     // 本文のみ生成（ハッシュタグ・URLは後付け）
     const mainPrompt=`以下の記事についてX投稿の本文を日本語で作成してください。
 
@@ -2574,9 +2659,10 @@ ${contextText}
     let tweet = body;
 
     // 短すぎる場合は、上限に収まる範囲で本文だけを一度だけ膨らませる
-    const expandThreshold=600;
+    // （短文モードはそもそも短く作るのが目的のため、この自動膨張はスキップする）
+    const expandThreshold=lengthConfig.expandThreshold;
     const bodyLen = calcLen(body);
-    if(bodyLen < expandThreshold){
+    if(expandThreshold!=null && bodyLen < expandThreshold){
       setStatus(true,'投稿文を少し詳しく調整中...');
       try{
         const expanded=await callProxy([{role:'user',content:`以下のX投稿本文は短すぎます。下記の記事内容に実際に書かれている具体的な要点・背景・数値や固有名詞を補い、${targetLenText}の3〜5文にしてください。
@@ -2630,6 +2716,7 @@ ${body}`}]);
     }else{
       el('replyUrlRow').style.display='none';
     }
+    renderReplyTargets(article);
     setStatus(false);
     el('selectBtn').disabled=false;
     el('selectBtn').textContent='✏️ 投稿文を生成';
@@ -2645,6 +2732,7 @@ ${body}`}]);
       }
       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(el('tweetBox').innerText)}`,'_blank');
       markPosted(article,el('tweetBox').innerText);
+      addMetricsEntry(article,includeOpinion?activeOpinionStyle:'',activeCat||'',activePostLength);
     };
   }catch(e){
     setStatus(false);
@@ -2782,10 +2870,130 @@ function loadPostHistory(){
 function loadHistory(i){
   const h=postHistory[i];el('tweetBox').innerText=h.tweet;updateChar();
   el('replyUrlRow').style.display='none'; // 履歴にはリプライ用URLを保存していないため非表示にする
+  el('replyTargetsSection').style.display='none'; // 履歴にはリプライ先候補も保存していないため非表示にする
   el('resultCard').style.display='block';
 }
 
-renderCats();renderLangs();loadPostHistory();loadCandidateHistory();
+// 【効果測定ループ】どの感想スタイル・カテゴリの投稿が伸びているかを後から振り返れるよう、
+// 投稿のたびに記録を1件作り、あとから表示回数・いいね数を手入力できるようにする。
+// 「今日の投稿履歴」とは別に、日をまたいでも消えない記録として永続化する（直近200件まで）
+const POST_METRICS_KEY='it_post_metrics_log_v1';
+const METRICS_LIST_DISPLAY_MAX=15;
+let metricsLog=[];
+
+function opinionStyleLabel(k){
+  const found=OPINION_STYLES.find(s=>s.k===k);
+  return found?found.l:(k?k:'感想なし');
+}
+
+function addMetricsEntry(article,opinionStyle,category,postLength){
+  const entry={
+    id:Date.now()+'-'+Math.random().toString(36).slice(2,7),
+    title:article.title||'',
+    category:category||'',
+    opinionStyle:opinionStyle||'',
+    postLength:postLength||'long',
+    dateJST:todayKeyJST(),
+    time:new Date().toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}),
+    views:null,
+    likes:null,
+  };
+  metricsLog.unshift(entry);
+  if(metricsLog.length>200)metricsLog.length=200;
+  saveMetricsLog();
+  renderMetricsSection();
+}
+
+function saveMetricsLog(){
+  try{ localStorage.setItem(POST_METRICS_KEY,JSON.stringify(metricsLog)); }
+  catch(e){ console.warn('効果記録の保存に失敗',e); }
+}
+
+function loadMetricsLog(){
+  try{
+    const raw=localStorage.getItem(POST_METRICS_KEY);
+    if(!raw)return;
+    const data=JSON.parse(raw);
+    if(Array.isArray(data))metricsLog=data;
+  }catch(e){ console.warn('効果記録の読み込みに失敗',e); }
+}
+
+function updateMetric(id,field,value){
+  const entry=metricsLog.find(m=>m.id===id);
+  if(!entry)return;
+  const trimmed=String(value).trim();
+  const num=trimmed===''?null:Number(trimmed);
+  entry[field]=(num===null||isNaN(num)||num<0)?null:num;
+  saveMetricsLog();
+  renderMetricsSection();
+}
+
+function aggregateMetrics(keyFn){
+  const groups={};
+  for(const m of metricsLog){
+    const key=keyFn(m);
+    if(!key)continue;
+    if(m.views==null&&m.likes==null)continue; // 未入力の記録は集計に含めない
+    if(!groups[key])groups[key]={key,n:0,viewsSum:0,viewsN:0,likesSum:0,likesN:0};
+    const g=groups[key];
+    g.n++;
+    if(m.views!=null){g.viewsSum+=m.views;g.viewsN++;}
+    if(m.likes!=null){g.likesSum+=m.likes;g.likesN++;}
+  }
+  return Object.values(groups).map(g=>({
+    key:g.key,
+    n:g.n,
+    avgViews:g.viewsN?Math.round(g.viewsSum/g.viewsN):null,
+    avgLikes:g.likesN?Math.round(g.likesSum/g.likesN*10)/10:null,
+  })).sort((a,b)=>(b.avgViews??-1)-(a.avgViews??-1));
+}
+
+function renderMetricsTable(rows,labelFn){
+  if(!rows.length)return `<div class="metrics-empty">数値を入力すると表示されます</div>`;
+  return `<table class="metrics-table"><tbody>${rows.map(r=>`
+    <tr><td>${escapeHtml(labelFn(r.key))}</td><td>${r.n}件</td><td>表示 ${r.avgViews??'-'}</td><td>いいね ${r.avgLikes??'-'}</td></tr>
+  `).join('')}</tbody></table>`;
+}
+
+function postLengthLabel(k){
+  const found=POST_LENGTHS.find(p=>p.k===k);
+  return found?found.l:'📝 長文（350〜500字）';
+}
+
+function renderMetricsSection(){
+  const hasAny=metricsLog.length>0;
+  el('metricsSection').style.display=hasAny?'block':'none';
+  if(!hasAny)return;
+  el('metricsList').innerHTML=metricsLog.slice(0,METRICS_LIST_DISPLAY_MAX).map(m=>`
+    <div class="metrics-item">
+      <div class="metrics-item-head">
+        <span class="metrics-item-title">${escapeHtml(m.title)}</span>
+        <span class="metrics-item-meta">${escapeHtml(m.category||'-')} ・ ${escapeHtml(opinionStyleLabel(m.opinionStyle))} ・ ${escapeHtml(postLengthLabel(m.postLength))} ・ ${escapeHtml(m.dateJST)} ${escapeHtml(m.time)}</span>
+      </div>
+      <div class="metrics-item-inputs">
+        <label>表示回数 <input type="number" min="0" placeholder="未入力" value="${m.views??''}" onchange="updateMetric('${m.id}','views',this.value)"></label>
+        <label>いいね <input type="number" min="0" placeholder="未入力" value="${m.likes??''}" onchange="updateMetric('${m.id}','likes',this.value)"></label>
+      </div>
+    </div>`).join('');
+  const byStyle=aggregateMetrics(m=>m.opinionStyle||'感想なし');
+  const byCategory=aggregateMetrics(m=>m.category);
+  const byLength=aggregateMetrics(m=>m.postLength||'long');
+  el('metricsSummary').innerHTML=`
+    <div class="metrics-summary-block">
+      <div class="metrics-summary-label">感想スタイル別（平均）</div>
+      ${renderMetricsTable(byStyle,opinionStyleLabel)}
+    </div>
+    <div class="metrics-summary-block">
+      <div class="metrics-summary-label">カテゴリ別（平均）</div>
+      ${renderMetricsTable(byCategory,k=>k)}
+    </div>
+    <div class="metrics-summary-block">
+      <div class="metrics-summary-label">投稿の長さ別（平均）</div>
+      ${renderMetricsTable(byLength,postLengthLabel)}
+    </div>`;
+}
+
+renderCats();renderLangs();loadPostHistory();loadCandidateHistory();loadMetricsLog();renderMetricsSection();
 </script>
 </body>
 </html>

@@ -20,6 +20,8 @@ import html
 import re
 import hmac
 import hashlib
+import ipaddress
+import socket
 import unicodedata
 import time
 try:
@@ -33,6 +35,57 @@ except ImportError:
         def dst(self, dt): return timedelta(0)
     LOCAL_TZ = _JST()
 
+def _is_blocked_ip(ip):
+    """ループバック・プライベート・リンクローカル等、外部公開していない宛先か判定する"""
+    return (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def validate_external_http_url(url, resolve_host=True):
+    """ユーザー/外部入力由来のURLへ安全にリクエストできるか検証し、問題なければurlをそのまま返す。
+
+    SSRF対策として以下を拒否する:
+    - http/https以外のスキーム（file:// 等でのローカルファイル読み取りを防ぐ）
+    - ユーザー情報(user:password@)を含むURL
+    - ホスト名が無い、またはlocalhost/ループバック/プライベート/リンクローカルIP
+    - resolve_host=True の場合はDNSで解決した先がプライベート/内部アドレスであるURL
+      （社内ネットワークやクラウドのメタデータエンドポイントへのアクセスを防ぐ）
+    不正な場合は ValueError を送出する。
+    """
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        raise ValueError(f"許可されていないスキームです: {parts.scheme or '(なし)'}")
+    if "@" in parts.netloc:
+        raise ValueError("認証情報を含むURLは許可されません")
+    hostname = parts.hostname
+    if not hostname:
+        raise ValueError("ホスト名がありません")
+    if hostname.lower() == "localhost":
+        raise ValueError("localhostへのアクセスは許可されません")
+    try:
+        literal_ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None and _is_blocked_ip(literal_ip):
+        raise ValueError(f"アクセスが許可されていないIPアドレスです: {literal_ip}")
+    if resolve_host:
+        try:
+            infos = socket.getaddrinfo(hostname, None)
+        except socket.gaierror as e:
+            raise ValueError(f"ホスト名を解決できません: {hostname}") from e
+        for info in infos:
+            resolved_ip = ipaddress.ip_address(info[4][0])
+            if _is_blocked_ip(resolved_ip):
+                raise ValueError(f"アクセスが許可されていない宛先に解決されました: {hostname} -> {resolved_ip}")
+    return url
+
+
 class FeedRedirectHandler(HTTPRedirectHandler):
     def http_error_307(self, req, fp, code, msg, headers):
         return self.http_error_302(req, fp, code, msg, headers)
@@ -42,6 +95,11 @@ class FeedRedirectHandler(HTTPRedirectHandler):
         # HTTPErrorを送出してリダイレクトを追跡できない（例: raycast.com→www）。
         # 挙動が同等の307として処理させる。
         return self.http_error_302(req, fp, 307, msg, headers)
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # リダイレクト先が内部ネットワーク等のSSRF対象でないか、転送前に検証する
+        validate_external_http_url(newurl, resolve_host=True)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 _APP_ICON_CACHE = None
 APP_ICON_VERSION = "20260704c"
@@ -96,12 +154,14 @@ def call_gemini(prompt_text, max_tokens=800, json_mode=False, model=None, max_re
     }
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model or GEMINI_MODEL}:generateContent?{urlencode({'key': API_KEY})}"
+        f"{model or GEMINI_MODEL}:generateContent"
     )
     req = Request(
         endpoint,
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
+        # APIキーはURLクエリではなくヘッダーで送る（アクセスログ・ブラウザ履歴・
+        # リファラ経由での漏洩を防ぐため）
+        headers={"Content-Type": "application/json", "X-goog-api-key": API_KEY},
         method="POST",
     )
     result = None
@@ -139,6 +199,9 @@ def call_gemini(prompt_text, max_tokens=800, json_mode=False, model=None, max_re
         raise RuntimeError(f"Gemini API: テキストがありません (response={result})")
     return text
 PORT       = int(os.environ.get("PORT", 8765))
+# POST本文として受け付けるJSONの最大サイズ。巨大なリクエストでメモリを
+# 消費させるDoSを防ぐため、Content-Lengthの時点で拒否する。
+MAX_JSON_BODY_BYTES = 2_000_000
 RECENT_DAYS = 0
 RSS_FETCH_TIMEOUT = 4.0
 RSS_FETCH_FAST_BUDGET = 4.0
@@ -157,6 +220,33 @@ BASIC_PASS = os.environ.get("BASIC_PASS", "")
 COOKIE_SECRET = os.environ.get("COOKIE_SECRET", BASIC_PASS or "dev-secret")
 COOKIE_NAME = "it_post_session"
 SESSION_IDLE_TIMEOUT_SECONDS = int(os.environ.get("SESSION_IDLE_TIMEOUT_SECONDS", "1800"))
+
+# ログインのブルートフォース対策（IPごとに一定回数失敗したら一時的にロックする）
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_SECONDS = 300
+_LOGIN_ATTEMPTS = {}  # {ip: (failure_count, locked_until_epoch)}
+_LOGIN_ATTEMPTS_LOCK = threading.Lock()
+
+def _login_rate_limited(ip):
+    with _LOGIN_ATTEMPTS_LOCK:
+        entry = _LOGIN_ATTEMPTS.get(ip)
+        if not entry:
+            return False
+        _, locked_until = entry
+        return time.time() < locked_until
+
+def _record_login_failure(ip):
+    with _LOGIN_ATTEMPTS_LOCK:
+        count, locked_until = _LOGIN_ATTEMPTS.get(ip, (0, 0.0))
+        count += 1
+        if count >= LOGIN_MAX_ATTEMPTS:
+            locked_until = time.time() + LOGIN_LOCKOUT_SECONDS
+            count = 0
+        _LOGIN_ATTEMPTS[ip] = (count, locked_until)
+
+def _record_login_success(ip):
+    with _LOGIN_ATTEMPTS_LOCK:
+        _LOGIN_ATTEMPTS.pop(ip, None)
 
 def _sign_session(ts):
     return hmac.new(COOKIE_SECRET.encode(), f"authenticated:{ts}".encode(), hashlib.sha256).hexdigest()
@@ -942,6 +1032,11 @@ def _extract_main_content_block(raw):
 
 def fetch_article_body(url, char_limit=6000, timeout=15):
     """記事URLから本文テキストを取得して返す"""
+    try:
+        validate_external_http_url(url)
+    except ValueError as e:
+        print(f"[記事取得] 拒否: {e}", flush=True)
+        return ""
     cache_key = (url, char_limit)
     cached = _ARTICLE_BODY_CACHE.get(cache_key)
     if cached and time.monotonic() - cached[0] < _ARTICLE_BODY_CACHE_TTL:
@@ -1147,6 +1242,10 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
         for item in rss_items:
             title = strip_tags(_first_text(item, 'title'))
             link  = strip_tags(_first_text(item, 'link'))
+            # 相対URLのlinkをそのまま使うと後段のSSRF検証（スキーム判定）やブラウザ表示が
+            # 壊れるため、フィードURLを基準に絶対URLへ解決する。
+            if link:
+                link = urljoin(feed_url, link)
             date  = strip_tags(_first_text(item, 'pubDate', 'date', 'updated', 'published'))
             summary = _first_text(item, 'description', 'summary', 'content')
             if title and link:
@@ -1170,6 +1269,8 @@ def fetch_rss(feed_url, source, limit=5, article_type=None, timeout=RSS_FETCH_TI
                 link = link_el.get('href', '') if link_el is not None else ''
                 if not link and link_el is not None and link_el.text:
                     link = link_el.text
+                if link:
+                    link = urljoin(feed_url, link)
                 date = strip_tags(
                     entry.findtext('atom:published', '', ns)
                     or entry.findtext('atom:updated', '', ns)
@@ -2887,8 +2988,8 @@ function renderHistoryList(){
   el('historySection').style.display=postHistory.length?'block':'none';
   el('historyList').innerHTML=postHistory.map((h,i)=>`
     <div class="history-item" onclick="loadHistory(${i})">
-      <span class="hi-title">${h.title}</span>
-      <span class="hi-time">${h.time}</span>
+      <span class="hi-title">${escapeHtml(h.title)}</span>
+      <span class="hi-time">${escapeHtml(h.time)}</span>
     </div>`).join('');
 }
 function markPosted(art,tweet){
@@ -3090,18 +3191,27 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _handle_login_post(self):
+        client_ip = self.client_address[0] if self.client_address else "unknown"
+        if _login_rate_limited(client_ip):
+            self._redirect_login(error=True)
+            return
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length).decode()
         from urllib.parse import parse_qs
         params = parse_qs(raw)
         username = params.get("username", [""])[0]
         password = params.get("password", [""])[0]
-        if username == BASIC_USER and password == BASIC_PASS:
+        # タイミング攻撃で文字単位の正解を推測されないよう、定数時間で比較する
+        username_ok = hmac.compare_digest(username.encode(), BASIC_USER.encode())
+        password_ok = hmac.compare_digest(password.encode(), BASIC_PASS.encode())
+        if username_ok and password_ok:
+            _record_login_success(client_ip)
             self.send_response(302)
             self.send_header("Location", "/")
             self.send_header("Set-Cookie", self._auth_cookie_header())
             self.end_headers()
         else:
+            _record_login_failure(client_ip)
             self._redirect_login(error=True)
 
     def _handle_logout(self):
@@ -3121,6 +3231,38 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", len(body))
         self.end_headers()
         self.wfile.write(body)
+
+    def _read_json_payload(self):
+        """POSTボディを安全にJSONとして読み込む。
+        不正な場合はNoneを返し、適切なエラーレスポンスを送信済みの状態にする
+        （Content-Length未指定・負値・上限超過・不正JSON・非オブジェクトを拒否し、
+        巨大なリクエストでメモリを消費するDoSや解析エラーを防ぐ）。
+        """
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            self.send_json(411, {"error": "Content-Length is required"})
+            return None
+        try:
+            length = int(raw_length)
+        except ValueError:
+            self.send_json(400, {"error": "invalid Content-Length"})
+            return None
+        if length < 0:
+            self.send_json(400, {"error": "invalid Content-Length"})
+            return None
+        if length > MAX_JSON_BODY_BYTES:
+            self.send_json(413, {"error": "payload too large"})
+            return None
+        raw_body = self.rfile.read(length)
+        try:
+            payload = json.loads(raw_body)
+        except json.JSONDecodeError:
+            self.send_json(400, {"error": "invalid JSON"})
+            return None
+        if not isinstance(payload, dict):
+            self.send_json(400, {"error": "JSON object is required"})
+            return None
+        return payload
 
     def do_HEAD(self):
         self.send_response(200)
@@ -3300,8 +3442,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not found"})
             return
 
-        length = int(self.headers.get("Content-Length", 0))
-        payload = json.loads(self.rfile.read(length))
+        payload = self._read_json_payload()
+        if payload is None:
+            return
 
         if self.path == "/api/translate_candidates":
             articles = payload.get("articles", [])

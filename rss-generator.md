@@ -1,6 +1,6 @@
 # IT記事投稿ジェネレーター仕様
 
-更新日: 2026-07-27
+更新日: 2026-10-23
 リポジトリ: `https://github.com/naokoni24/post-generator`
 ブランチ: `main`
 対象ファイル: `it_post_generator_rss.py`
@@ -1007,3 +1007,12 @@ RenderでのWeb運用を想定しています。
   - 必要フィールドが欠けている場合（例: `template=stat`なのに`stat_value`が空）は`comparison`にフォールバックする安全策を追加
   - 3テンプレート共通の技術仕様（16:9・1200x675・Xの安全マージン）と末尾の「AIで生成したとわからないようにして」は`IMG_BASE_SPEC`/`IMG_FOOTER`として共通化し、テンプレートごとの重複を避けた
   - 検証: Node.jsで`buildImagePromptFromParsed()`を含む一連の関数を切り出して単体実行し、(1)comparison入力→マスコットロボット表現とタイトルが両方含まれる、(2)stat入力→stat-card表現と数値が含まれ`mascot robot`は含まれない、(3)announcement入力→editorial表現と`body_ja`が含まれ`sparkle`は含まれない、(4)stat指定なのに必須フィールド欠落→comparisonへフォールバックする、の4パターンすべて期待通りであることを確認。`node --check`でJS構文確認、Python構文チェック、サーバー実起動＋ブラウザでボタンのイベントハンドラが正しく設定されていること・コンソールエラーが出ないことを確認済み。GEMINI_API_KEY未設定のためGemini実呼び出し込みの完全なE2E（実際に3種類のtemplateが状況に応じて選ばれるかの確認）は未検証
+- 【脆弱性対応】「脆弱性対応して」という依頼を受け、セキュリティレビューを行い以下を修正した。既存の`test_it_post_generator_rss.py`がSSRF対策・JSONペイロード検証・APIキー送信方法について先に期待仕様をテストとして用意していたため、それに合わせて実装した
+  - **SSRF対策**: `/api/fetch_article?url=...`はログイン後なら誰でも任意のURLをサーバー側から取得させられ、`file:///etc/passwd`のようなローカルファイル読み取りや、`169.254.169.254`等のクラウドメタデータ・社内ネットワークへのアクセスに使われ得た。新設した`validate_external_http_url()`で、スキームをhttp/https限定、`user:pass@`形式のURL拒否、`localhost`/ループバック/プライベート/リンクローカルIPの拒否（指定ホストをDNS解決した先のIPも検査）を行うようにし、`fetch_article_body()`の冒頭と、記事取得・RSS取得で使う`FeedRedirectHandler`のリダイレクト先検証（`redirect_request`）の両方に適用した（リダイレクト経由での回避も防止）
+  - **JSONペイロードの検証不足（DoS）**: `/api/claude`・`/api/translate_candidates`がContent-Lengthを無検証で`int()`化し、そのまま`rfile.read()`していたため、負値や巨大な値、不正なJSON、配列などの非オブジェクトJSONを渡されると例外やメモリ消費につながり得た。`Handler._read_json_payload()`を新設し、Content-Length必須・0以上・`MAX_JSON_BODY_BYTES`（2MB）以下・JSON構文妥当・トップレベルがオブジェクトであることを検証してから返すようにし、`do_POST`から利用するよう変更
+  - **Gemini APIキーのURL漏洩**: `call_gemini()`がAPIキーをクエリパラメータ`?key=...`としてリクエストURLに含めていたため、アクセスログ・プロキシログ・リファラ経由で漏洩するリスクがあった。`X-goog-api-key`ヘッダーで送るように変更
+  - **ログインのタイミング攻撃**: `/login`のユーザー名・パスワード比較が`==`だったため、不一致位置までの処理時間差から文字列を推測されるリスクがあった（ローカル運用前提でリスクは低いが）。`hmac.compare_digest()`による定数時間比較に変更
+  - **ログインのブルートフォース対策なし**: `/login`に失敗回数の制限がなかった。IPごとに5回失敗したら5分間ロックする簡易レート制限（`_login_rate_limited`/`_record_login_failure`/`_record_login_success`、`LOGIN_MAX_ATTEMPTS`/`LOGIN_LOCKOUT_SECONDS`）を追加
+  - **投稿履歴のDOM-based XSS**: `renderHistoryList()`が`h.title`/`h.time`を`escapeHtml()`なしで`innerHTML`に挿入していた。RSS記事タイトル（外部サイト由来）にHTMLタグが含まれる場合に実行され得たため、他の表示箇所と同様`escapeHtml()`を適用
+  - **副作用で発覚した既存バグ修正**: `fetch_rss()`がRSS/Atomのリンクを相対URLのまま返す場合があり、SSRF検証を追加した結果それらが「スキーム不正」として拒否されてしまうことが判明。`urljoin(feed_url, link)`で絶対URLに解決してから使うよう修正（RSS 2.0・Atom両方）
+  - 検証: `python3 -m unittest test_it_post_generator_rss`で11件全て成功（新規の`ExternalUrlTests`/`JsonPayloadTests`/`GeminiRequestTests`含む）。Python構文チェック（`py_compile`）成功。サーバーを実起動し、`/api/fetch_article?url=http://127.0.0.1:.../api/status`が拒否されること、`file:///etc/passwd`・`169.254.169.254`・`localhost`・`[::1]`・認証情報付きURLがいずれも`validate_external_http_url`で拒否されること、`/login`への5回連続の誤パスワード後は正しいパスワードでもロックアウトされることを確認済み
